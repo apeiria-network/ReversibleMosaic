@@ -115,8 +115,16 @@
 - p4a `sdl2_image` 在 prebuild 递归 clone 子模块；已通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 让 `https://github.com/*` 全部走 `ghfast.top` 代理，不改用户 `~/.gitconfig`。
 - `SDL2_image → libjxl → skcms` 走 `skia.googlesource.com`，该域名在本 WSL 完全不可达；已就地补丁 p4a 的 `sdl2_image/__init__.py` 跳过 `libjxl` 与 `libavif` 子模块（二者在 SDL2_image Android.mk 中默认 `SUPPORT_JXL/AVIF ?= false`，跳过不影响功能）。
 - OpenSSL 官网 301 重定向到 GitHub 也被劫持；预取脚本已直接使用 GitHub 上的 openssl 发布 tarball，保持 basename 一致以便 p4a 命中缓存。
+- p4a `libthorvg` recipe 在 install 阶段用 `lib/clang/*/lib/linux/<arch>` glob 定位 `libomp.so`，但 NDK r25b 布局是 `lib64/clang/...`，导致 `IndexError`；已就地把 recipe 里的 glob 改成 `lib*/clang/*/lib/linux/<arch>`，同时兼容旧/新 NDK 布局。
+- Gradle wrapper 从 `services.gradle.org` 下载 `gradle-8.14.3-all.zip` 时 GFW 直接 `Connection refused`；已把 p4a `bootstraps/common/build/gradle/wrapper/gradle-wrapper.properties` 模板与已生成的 dist wrapper 都改到 `https://mirrors.cloud.tencent.com/gradle/gradle-8.14.3-all.zip`，wrapper 自动重新计算 hash 并从腾讯云拉取。
 
-### 下一步（阶段 0）
-- Buildozer 继续跑至产出 arm64-v8a debug APK；期间若碰到新的网络/依赖阻断，我会补对策再重跑，不引入静默重试。
-- APK 出后：记录 `bin/*.apk` 路径与 SHA-256，请【联合】节点上机安装（Android 8.0+ arm64 真机），反馈安装/启动结果与首页/教程是否可见。
-- 若首个 APK 只跑 Kivy 外壳成功，再逐步把 `pillow / numpy / cython / pyjnius` 加回 `buildozer.spec`，每加一次做一次探针，避免一次性引入过多失败面。
+### 阶段 0 探针 APK 交付
+- **产物**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk`，22.0 MiB，arm64-v8a only，minSdk = 26。
+- **SHA-256**：`63c5e21602d38656e994f3270d10814b929d16f055f6757cce6bac1f813bdd88`。
+- **内含 native lib**：`libpython3`、SDL2 全家桶、`libtvg`（thorvg）、`libwebp`。当前 `buildozer.spec` 的 `requirements` 只启用 Kivy 外壳；`pillow / numpy / cython / pyjnius` 留待下一轮探针分批加回。
+- **【联合】待用户操作**：请在 Android 8.0+ arm64 真机侧载安装 `bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk`，启动后应看到首页/教程占位。反馈：设备型号、Android 版本、安装是否被拦截（未知来源/Play Protect）、启动后是否闪退，如有崩溃请截图 logcat 或系统弹窗。
+- **暂停位**：按用户指示，阶段 0 探针 APK 已就位；在收到真机安装反馈前，不启动阶段 1 编解码/进度/结果屏幕的实现。
+
+### 下一步（阶段 0 通过后）
+- 分三次探针把 `pyjnius → numpy → pillow`（可能还需要 cython 一起）分别加回 `buildozer.spec` 的 `requirements`，每次都出一次 APK 侧载验证冒烟，避免一次性引入过多失败面。
+- 探针链路都过之后再启动阶段 1：`EncodeScreen`/`DecodeScreen`/`ProgressScreen`/`ResultScreen` 与 `TaskCoordinator` 的挂接。
