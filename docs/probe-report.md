@@ -140,3 +140,54 @@ APK 里只有 `main.pyc` 一个文件，`reversible_mosaic/` 整个模块都没�
 PC dev `python setup.py build_ext --inplace` 时用（Windows 上因缺 `__uint128_t`
 自动跳过）。
 
+## 阶段 1 v7 真机基准 (2026-07-28)
+
+- **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v7.apk`
+- **SHA-256**：`628f74b0d08525803e839747864f8187e4589b036b6c8baf631325893d6f57f0`
+- **大小**：34.14 MiB（比 v6 多 ~9 KiB = `optimized_v1.pyc` + `quality.pyc` + 更新的 `registry.pyc`）
+- **测试设备档次**：约 8 GB RAM 中高端 arm64 手机 / Android（与 v5/v6 同机器；正式发布前需绑定具体型号/SoC）
+
+### 探针结果
+
+所有 5 项探针 PASS，无回归。
+
+### 性能扫描（1920×1080 RGB, 5 次取中位数, `registry V1 backend = cython`）
+
+| rounds | median | p95 | peak_rss | AC-PERF 上限 | 余量 |
+|---:|---:|---:|---:|---:|---:|
+|  1 | 0.060 s | 0.062 s | 274.7 MiB |  3.0 s | 50× |
+|  5 | 0.268 s | 0.368 s | 274.7 MiB | ~9.0 s | 34× |
+| 10 | 0.543 s | 0.611 s | 274.7 MiB | 18.0 s | 33× |
+| 20 | 1.072 s | 1.133 s | 274.7 MiB | 35.0 s | 33× |
+
+**总耗时 10.1 s（全部 4×5=20 次跑 + 加解密对），实现 = `registry V1 backend = cython`。**
+
+### v5→v6→v7 对比
+
+| 版本 | 分辨率 | 20 轮 median | 备注 |
+|---|---|---:|---|
+| v5 | 256×256 | 37.6 s | 参考实现，Cython 未打包 |
+| v6 | 256×256 | 25.6 s | 参考实现，Cython 已打包但未接入 pipeline |
+| v7 | **1920×1080** | **1.07 s** | Cython 接入 pipeline，registry fallback 到 cython |
+
+对比 v6 → v7：**分辨率上升 31.6× + 后端从纯 Python 切到 Cython → 20 轮实测快约 24×**（等效吞吐提升 ≈ 760×）。
+
+### 阶段 1 首要里程碑对表
+
+| 目标 | 状态 |
+|---|---|
+| AC-PERF: 1 轮 ≤ 3 s | ✅ 0.060 s（50× 余量）|
+| AC-PERF: 10 轮 ≤ 18 s | ✅ 0.543 s（33× 余量）|
+| AC-PERF: 20 轮 ≤ 35 s | ✅ 1.072 s（33× 余量）|
+| Cython 接入 pipeline | ✅ `optimized_v1.py` + `registry._resolve_v1_transforms()` fallback |
+| 峰值 RSS ≤ (3 份全分辨率 + 64 MiB 固定 + 缩略图) | ✅ 275 MiB 内|
+| 参考与优化实现逐字节一致 | ✅ `tests/unit/test_optimized_v1.py`（Linux/WSL 强制，Windows skip）|
+
+**AC-PERF 基本确认过关**，不需要迁移 C/Rust。剩余阶段 1 工作：视觉验收 + V1 冻结。
+
+### 待补齐
+
+- **具体设备型号 / SoC / Android 版本**：正式发布前需绑定"约定性能设备"并在此记录。
+- **冷/热启动区分**：本轮跑的是热启动；冷启动首次仍可能受 Cython `.so` load + Python import 影响。发布前需补一次冷启动数据。
+- **1920×1080 RGBA + JPEG 输入**：本轮只测了 RGB 合成图，正式发布前需扩展到真实照片输入（含 EXIF 方向、Alpha 通道）。
+

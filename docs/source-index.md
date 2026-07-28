@@ -197,24 +197,25 @@ V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是
 
 ### [`algorithm/registry.py`](../reversible_mosaic/core/algorithm/registry.py)
 - **作用**：版本 registry。模块加载时 `_register_builtin_versions()` 会自动
-  注册 V1，指向 `reference_v1.encrypt / decrypt`。
+  注册 V1，指向 `reference_v1.encrypt / decrypt`。**阶段 1 v6→v7**：现在
+  优先尝试 `optimized_v1`（Cython 后端），失败退回 `reference_v1`。
 - **类型别名**：`Transform = Callable[[PixelArray, int, int, CancellationProbe | None], PixelArray]`。
 - **导出**：
   - `AlgorithmDescriptor(version, display_name, release_date, encrypt, decrypt)`
     冻结数据类。
   - `register(descriptor)`、`get(version) -> AlgorithmDescriptor`、
-    `supported_versions() -> tuple[...]`（版本号���序）、
+    `supported_versions() -> tuple[...]`（版本号倒序）、
     `latest() -> AlgorithmDescriptor`。
+  - `v1_implementation() -> str`：返回 `"cython"` 或 `"reference"`；
+    自检屏 / 测试可查当前活跃后端。
 - **谁用它**：`core/pipeline.py::process_image` —— 加密调 `latest()`，解密调
   `get(algorithm_version or latest().version)`。
 - **改动指引**：
   - **加 V2**：新建 `reference_v2.py`，在 `_register_builtin_versions()` 追加
     `register(AlgorithmDescriptor(version=2, ..., encrypt=..., decrypt=...))`。
     `latest()` 会自动返回 V2。
-  - **切换到 Cython 优化实现**：让 `_register_builtin_versions` 尝试
-    `import reversible_mosaic.core.algorithm.v1_optimized`；成功则用
-    优化版的 encrypt/decrypt，失败回退到 `reference_v1`。当前尚未做这个
-    fallback wire-up，阶段 1 才做。
+  - **换 V1 后端**：改 `_resolve_v1_transforms()` 里的 try/except；两个
+    实现的 encrypt/decrypt 签名必须完全等同。
 
 ### [`algorithm/reference_v1.py`](../reversible_mosaic/core/algorithm/reference_v1.py)
 - **作用**：V1 参考实现，"规范代表"。纯 Python 逐像素运算，慢但可读，
@@ -257,16 +258,53 @@ V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是
 - **导出**（`cpdef`）：`lift_forward(pixels, key)`、`lift_inverse(pixels, key)`、
   `permute_forward(pixels, key)`、`permute_inverse(pixels, key)`、
   `diffuse_forward(pixels, key, reverse)`、`diffuse_inverse(pixels, key, reverse)`。
-- **状态**：Windows PC 已能编译进 `.pyd`；Android arm64 打包还没接上（需要
-  在 `buildozer.spec` 加 Cython 相关 recipe 且提供 `setup.py`）。
-- **谁用它**：**目前无生产调用**。将来 `registry.py` 会尝试 import 这个模块，
-  成功则替换 encrypt/decrypt 的实现。
+- **状态**：Windows PC 无法编译（`__uint128_t` 是 GCC/clang 扩展）；WSL/Linux
+  可通过 `python setup.py build_ext --inplace` 得 `.so`；Android arm64 v6
+  通过 `p4a.setup_py = 1` 已打进 APK。
+- **谁用它**：**阶段 1 已接入生产**：`registry.py` 通过 `optimized_v1.py`
+  优先使用 Cython；PC/CI 无 Cython 时自动退回 `reference_v1`。
 - **改动指引**：
   - `.pyx` 修改后必须 `python setup.py build_ext --inplace` 重新编译。
   - Cython 内 `with nogil:` 段不能碰 Python 对象，也不能调 `_checkpoint`
     —— 取消检查只能在 Python 侧的主循环里做（每轮之间）。
-  - **必须保证与 `reference_v1.py` 逐字节一致**，否则 registry fallback 时
-    行为不确定；改一处两处都要同步改。
+  - **必须保证与 `reference_v1.py` 逐字节一致**，`tests/unit/test_optimized_v1.py`
+    在 Linux/WSL 会强制这条；改一处两处都要同步改，改完重编 `.so` 或 `.pyd`。
+
+### [`algorithm/optimized_v1.py`](../reversible_mosaic/core/algorithm/optimized_v1.py)
+- **作用**：阶段 1 引入。Cython 后端的 encrypt/decrypt 薄包装：从
+  `reference_v1` 导入 `_derive_words / _round_key / _validate / _checkpoint`
+  等编排逻辑，把六个内循环调用替换成 `v1.pyx` 里的 `lift_forward/inverse`、
+  `permute_forward/inverse`、`diffuse_forward/inverse`。**保证与
+  `reference_v1` 逐字节一致**。
+- **导出**：`encrypt(pixels, seed, rounds, cancel=None) -> PixelArray`、
+  `decrypt(pixels, seed, rounds, cancel=None) -> PixelArray`、
+  `CYTHON_MODULE_PATH: str`（Cython `.so`/`.pyd` 的路径，诊断用）。
+- **模块导入**：`from ... import v1 as _cy` 在模块顶层；Cython 模块
+  不存在时直接抛 `ImportError` —— `registry.py::_resolve_v1_transforms` 里
+  的 try/except 负责兜底到 reference。
+- **谁用它**：`registry.py` 优先注册 V1 时；`test_optimized_v1.py` 直接跨实现比对。
+- **改动指引**：
+  - **绝不**在这里做与 `reference_v1` 有差异的编排步骤 —— 一致性是唯一存在理由。
+  - Alpha 通道行为完全由 Cython inner 保证；PY 侧不做额外处理。
+
+### [`algorithm/quality.py`](../reversible_mosaic/core/algorithm/quality.py)
+- **作用**：阶段 1 引入。§12.3.3 三项视觉质量指标的实现，只依赖 numpy。
+- **导出**：
+  - `QualityMetrics(pixel_change_rate, horizontal_correlation,
+    vertical_correlation, diagonal_correlation, edge_similarity)`
+    冻结数据类；`as_dict()` 打平成可 JSON 化字典。
+  - `pixel_change_rate(source, scrambled) -> float` —— 只统计 RGB 通道
+    的字节级差异比例，Alpha 忽略。
+  - `adjacent_pixel_correlations(pixels) -> (h, v, d)` —— 水平/垂直/对角
+    亮度 Pearson 相关性（`ITU-R BT.601` luma 权重 0.299/0.587/0.114）。
+  - `edge_similarity(source, scrambled) -> float` —— Sobel 边缘图
+    二值化后 Jaccard 相似度；阈值 = max(50, mean(gradient magnitude))。
+  - `compute_metrics(source, scrambled) -> QualityMetrics` —— 一次算齐 5 项。
+- **谁用它**：`scripts/generate_visual_review_set.py` 每张打码结果算一次；
+  `tests/unit/test_quality.py` 覆盖恒等/全变/纯色/RGBA/scrambled 场景。
+- **改动指引**：
+  - 阈值最终写进 `docs/algorithm-v1.md` 附录（阶段 1 冻结后）。
+  - Sobel 阈值调整前要跑 20 张固定图集验证：太严会把纯色/低对比图错报为通过。
 
 ### [`algorithm/__init__.py`](../reversible_mosaic/core/algorithm/__init__.py)
 - 仅 docstring。
@@ -458,21 +496,24 @@ Intent、剪贴板）在阶段 2 才写。
 | [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset |
 | [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射 |
 | [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
+| [`test_optimized_v1.py`](../tests/unit/test_optimized_v1.py) | `algorithm/optimized_v1.py` + `algorithm/v1.pyx` | reference vs Cython 逐字节比对；Windows 无 Cython 时整个模块 skip |
+| [`test_quality.py`](../tests/unit/test_quality.py) | `algorithm/quality.py` | §12.3.3 三项指标：恒等/全变/纯色/RGBA/scrambled 各场景 |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
-  `decrypt(encrypt(x)) == x`、确定性、前导零等价。是 V1 冻结前"打不同种子
-  跑不出 bug"的主要防线。
+  `decrypt(encrypt(x)) == x`、确定性、Alpha 保守恒、5 项性质共 ~170 组样本。
+  1/5 轮走 80 例，10/20 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
 
 ### [`tests/vectors/`](../tests/vectors/)
 - [`generate_v1_vectors.py`](../tests/vectors/generate_v1_vectors.py)：合成
   固定图集，跑 1/5/10/20 轮，把 encrypt 输出与关键中间阶段摘要写入
-  `vectors.json`（供跨平台比对）。
+  `algorithm_v1_draft.json`（冻结后改名 `vectors.json`；供跨平台比对）。
 - [`test_v1_vectors.py`](../tests/vectors/test_v1_vectors.py)：读取
-  `vectors.json`，断言当前 `reference_v1` 输出与文件一致。这是"防
-  意外修改 V1 字节输出"的兜底。
-- **改动指引**：改 `reference_v1.py` 后必须重跑 `generate_v1_vectors.py`
-  更新固定向量；否则 `test_v1_vectors.py` 会红。冻结后重跑 = 破坏冻结。
+  草案 JSON，断言 `reference_v1` **和** registry 当前后端（可能是 Cython）
+  的输出与文件一致。这是"防意外修改 V1 字节输出"的兜底。
+- **改动指引**：改 `reference_v1.py` 或 `v1.pyx` 后必须重跑
+  `generate_v1_vectors.py` 更新固定向量；否则 `test_v1_vectors.py` 会红。
+  冻结后重跑 = 破坏冻结。
 
 ### [`tests/adversarial/test_malicious_inputs.py`](../tests/adversarial/test_malicious_inputs.py)
 - 恶意 PNG/JPEG 拒绝测试：伪造尺寸、异常 EXIF、chunk 截断、超大文本、
@@ -481,6 +522,28 @@ Intent、剪贴板）在阶段 2 才写。
 ---
 
 ## 构建 & 探测脚本（`scripts/`）
+
+### 视觉验收 / 质量报告
+
+#### [`scripts/generate_visual_review_set.py`](../scripts/generate_visual_review_set.py)
+- **作用**：阶段 1 引入。读 `artifacts/visual_review_sources/` 下的固定图集，
+  对每张跑 3 个种子 × 4 个轮数（1/5/10/20），走 `registry.get(1)` 加密（因此
+  会自动使用当前活跃后端 —— Cython 或 reference），产出结构化输出：
+  - `artifacts/visual_review/<image_id>/source.png` —— 原图拷贝
+  - `artifacts/visual_review/<image_id>/rounds_XX_seed_YY.png` —— 打码结果
+    （含合法 `reversible_mosaic` tEXt 元数据 —— 结果可以直接被自动化恢复测试消费）
+  - `artifacts/visual_review/metrics.json` —— 每张 × 每种子 × 每轮数的 5 项
+    指标（像素变化率、水平/垂直/对角相邻相关性、边缘相似度）+ 按轮数/种子聚合的汇总
+  - `artifacts/visual_review/scorecard.md` —— 3 名检查者独立填写的评分表模板
+- **命令**：`python scripts/generate_visual_review_set.py --sources <input_dir>
+  --output <output_dir>`。默认 `--sources artifacts/visual_review_sources
+  --output artifacts/visual_review`。**每次执行会先 rmtree 输出目录**。
+- **决定性**：同源图 + 同 registry 后端 → 逐字节一致输出。
+- **改动指引**：
+  - 加新种子：改 `CANONICAL_SEEDS` 顶层常量。
+  - 加新轮数：改 `ROUNDS` 顶层常量 —— 但只能是 §7.3 `VALID_ROUNDS` = {1, 5, 10, 20}。
+  - `scorecard.md` 模板文字属于用户输出，允许全宽中文标点（file-level
+    `# ruff: noqa: RUF001`）。改文案时保留 3 列打分槽（3 位检查者独立填写）。
 
 ### 主构建
 
@@ -702,6 +765,8 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 | 加/改字体 | `reversible_mosaic/assets/fonts/` + `app.py` 里 `_CJK_FONT_PATH` |
 | 加/改阶段 0 真机探针 | `reversible_mosaic/ui/self_test.py` 的 `SYNC_PROBES`；测试同步在 `tests/unit/test_self_test_probes.py` |
 | 加/改 Cython .pyx 模块 | 新增 `.pyx` → 追加到 `setup.py::CYTHON_MODULES` → PC 侧跑 `python setup.py build_ext --inplace`（非 MSVC）→ WSL 侧 v6+ 自动 cross-compile |
+| 加视觉质量指标 | `reversible_mosaic/core/algorithm/quality.py` 新增函数 + `tests/unit/test_quality.py` 断言；再改 `scripts/generate_visual_review_set.py` 输出到 metrics.json |
+| 跑视觉验收样本 | 把源图放到 `artifacts/visual_review_sources/` → 执行 `python scripts/generate_visual_review_set.py`，产出会在 `artifacts/visual_review/` |
 | 覆盖 p4a 内置 recipe（打补丁、换版本） | `scripts/p4a_local_recipes/<name>/__init__.py` + `patches/`；`buildozer.spec` 已配 `p4a.local_recipes` 指向它 |
 
 ---

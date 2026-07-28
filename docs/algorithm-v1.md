@@ -341,7 +341,17 @@ F_r^-1 = lift_inv  ∘  permute_inv  ∘  diffuse_fwd_inv  ∘  diffuse_rev_inv
 | 层 | 实现 | 当前状态 |
 |---|---|---|
 | 规范代表 | [reference_v1.py](../reversible_mosaic/core/algorithm/reference_v1.py) 纯 Python | 慢，作为跨平台 oracle |
-| 优化候选 | `v1.pyx` Cython（`nogil` 释放 GIL） | PC `.pyd` 已编、arm64 `.so` v6 已打进 APK |
-| Pipeline 集成 | **阶段 1 待办** | 目前 encrypt/decrypt 仍调 reference |
+| 优化候选 | `v1.pyx` Cython（`nogil` 释放 GIL） | 阶段 1 已接入生产（`optimized_v1.py` + `registry.py` fallback） |
+| Pipeline 集成 | **阶段 1 v7 完成** | `registry.get(1)` 优先返回 Cython 后端；PC/CI 无 Cython 时自动退回 reference |
 
-真机 256×256 参考实现（v6 自检屏）：1 轮 1.3 s、10 轮 13 s、20 轮 26 s；线性外推 1920×1080 20 轮约 20 min，比 AC-PERF 目标（35 s）**慢 34 倍**。这就是阶段 1 必须把 Cython 接进 pipeline 的原因。
+阶段 1 真机基准（1920×1080 RGB, 5 次中位数, v7 APK, `registry V1 backend = cython`, 2026-07-28）：
+
+| 轮数 | 实测 median | 实测 p95 | AC-PERF 上限 | 余量 |
+|---|---|---|---|---|
+|  1 | 0.060 s | 0.062 s |  3.0 s | 50× |
+|  5 | 0.268 s | 0.368 s |  ~9.0 s | 34× |
+| 10 | 0.543 s | 0.611 s | 18.0 s | 33× |
+| 20 | 1.072 s | 1.133 s | 35.0 s | 33× |
+
+峰值 RSS 274.7 MiB（覆盖 3 份 1920×1080×3=18.6 MiB 全分辨率缓冲 + 64 MiB 固定开销 + Kivy 运行时）。
+测试机型/SoC 及冷/热状态尚未记入本报告，正式发布前需在 [docs/probe-report.md](probe-report.md) 补齐。

@@ -195,3 +195,68 @@
    边缘相似度阈值冻结进需求附录。
 4. **V1 算法冻结**：`docs/algorithm-v1.md` 标 `frozen`；此后任何像素规则改动
    必须新增 V2，不能改 V1 字节输出（`tests/vectors/vectors.json` 是黄金锚点）。
+
+### 阶段 1 – PC 侧完成情况（2026-07-28）
+
+**已完成（自动）**：
+1. **Cython 接入 pipeline**：新增 [optimized_v1.py](reversible_mosaic/core/algorithm/optimized_v1.py)，
+   复用 `reference_v1` 的 `_derive_words / _round_key / _validate / _checkpoint` 编排逻辑，
+   六个内循环全部替换为 `v1.pyx` 中的 `nogil` Cython 版本。
+   [registry.py](reversible_mosaic/core/algorithm/registry.py) 加 `_resolve_v1_transforms()`：
+   能 import `optimized_v1` 就用 Cython（arm64 Android/Linux/WSL），否则退回
+   `reference_v1`（Windows PC + MSVC）。新增 `v1_implementation()` 探测函数，
+   自检屏 / 测试可查当前后端是 `"cython"` 还是 `"reference"`。
+2. **跨实现字节一致测试**：新增
+   [tests/unit/test_optimized_v1.py](tests/unit/test_optimized_v1.py)，8 个尺寸/轮数/种子组合
+   下 reference vs Cython 逐字节比对；Windows PC 上 21 个用例正确跳过。
+   [tests/vectors/test_v1_vectors.py](tests/vectors/test_v1_vectors.py) 增加
+   `test_registered_v1_matches_draft_fixed_vectors` — 断言当前 registry 里
+   V1 的字节输出与 `algorithm_v1_draft.json` 完全一致。
+3. **Property 测试加强**：
+   [tests/property/test_algorithm_properties.py](tests/property/test_algorithm_properties.py)
+   从单个 `test_v1_is_a_bijection`（80 例，1/5 轮）扩到 5 个性质：
+   高轮数双射（10/20 轮，12 例）、确定性（40 例）、Alpha 通道值集合守恒（20 例）、
+   非平凡输出（15 例）。
+4. **视觉质量指标模块**：新增
+   [reversible_mosaic/core/algorithm/quality.py](reversible_mosaic/core/algorithm/quality.py)，
+   计算 §12.3.3 三项指标：像素变化率（RGB 通道级）、
+   水平/垂直/对角相邻像素亮度相关性（Pearson）、
+   Sobel 边缘图 Jaccard 相似度。9 个单元测试覆盖恒等/全变/纯色/RGBA/scrambled 场景。
+5. **视觉验收样本生成器**：新增
+   [scripts/generate_visual_review_set.py](scripts/generate_visual_review_set.py)，
+   从 `artifacts/visual_review_sources/` 读源图，对每张跑 3 个种子
+   （默认 500_000、辅助 314_159、987_654_321）× 4 个轮数（1/5/10/20），
+   保存打码 PNG（含合法 tEXt 元数据）+ 汇总 `metrics.json` +
+   打印用 `scorecard.md`（3 名检查者独立填写模板）。
+
+**验证情况**：
+- `pytest -q`：130 passed / 21 skipped（Cython 相关在 Windows 上正确跳过）
+- `mypy` strict：28 文件全部通过
+- `ruff check`：9 个错误全部是 baseline 里已存在的（scripts/ 侧 recipe/enumerate 遗留），
+  本轮改动引入 **零** 新违规
+
+**尚待用户参与**：
+- **【联合】v7 真机基准（1920×1080）** ✅ **已完成 2026-07-28**：
+  v7 APK（SHA-256 `628f74b0d08525803e839747864f8187e4589b036b6c8baf631325893d6f57f0`，
+  34.14 MiB）在约 8 GB arm64 真机跑 1920×1080 RGB，5 次中位数：
+  - 1 轮 0.060 s / 5 轮 0.268 s / 10 轮 0.543 s / 20 轮 1.072 s；峰值 RSS 274.7 MiB
+  - **AC-PERF 每一项都以 ~33× 余量通过**（详见 [docs/probe-report.md](docs/probe-report.md#阶段-1-v7-真机基准-2026-07-28)）
+  - 不需要迁移 C/Rust；Cython + `nogil` 内循环足够
+- **【人工协助】固定视觉图集**：请提供 20 张内容丰富的 RGB 照片（人像、
+  文字、场景、插画各若干） + 8 张 RGBA + 8 张边界图。每张记录 SHA-256 与
+  来源/许可证。放到 `artifacts/visual_review_sources/`。之后我跑
+  `python scripts/generate_visual_review_set.py`，出 `metrics.json` 报告
+  再由你定阈值。
+- **3 人视觉验收**：拿到 `scorecard.md` 后由你协调 3 名检查者独立填写。
+
+### 阶段 1 后续待办
+1. **v7 真机基准 + 阈值冻结**：拿到实测数字后把三项质量阈值和 AC-PERF
+   实测中位数/P95 写进 `docs/algorithm-v1.md` 附录。
+2. **UI 打通编码/解码屏**：`reversible_mosaic/app.py` 阶段 1 结束前需要
+   把 `HomeScreen` 的两个 Placeholder 换成 `EncodeScreen` / `DecodeScreen`
+   / `ProgressScreen` / `ResultScreen`（走 `TaskCoordinator` +
+   `ProgressReporter`）。跨越阶段 1/2 边界；MVP 视觉可用之后再收
+   `SelfTestScreen` 到"设置 → 诊断"。
+3. **V1 冻结签字**：视觉阈值 + AC-PERF 数据齐备后，把
+   `algorithm_v1_draft.json` 改名 `vectors.json`，`docs/algorithm-v1.md`
+   翻 `frozen` 状态，附录列冻结日期和阈值表。
