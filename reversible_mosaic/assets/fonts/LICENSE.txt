@@ -1,0 +1,17 @@
+wqy-microhei.ttc  (WenQuanYi Micro Hei 文泉驿微米黑)
+Upstream: https://sourceforge.net/projects/wqy/
+Copyright:
+  Copyright © 2008–2009 The WenQuanYi Project Board of Trustees
+  Copyright © 2008–2009 Qianqian Fang, mozbug
+  Derived from Google Droid font family:
+    Copyright © 2006–2008 Google Corporation, Steve Matteson, Ascender Corp.
+  Some CJK punctuation glyphs from Ume-Font:
+    Copyright © 2003–2004 Electronic Font Open Laboratory
+    Copyright © 1990–2003 Wada Laboratory, University of Tokyo
+
+License: Apache-2.0 OR GPL-3+ with Font exception
+  Full text: http://www.apache.org/licenses/LICENSE-2.0
+             https://www.gnu.org/licenses/gpl-3.0.html
+
+Bundled unmodified as the app-wide default font so both Latin and CJK
+glyphs render on Android and PC.

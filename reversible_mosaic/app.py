@@ -1,87 +1,114 @@
-"""Application shell with local-only product guidance."""
+"""Application shell with local-only product guidance.
+
+Phase-0 probe uses plain Kivy widgets only. KivyMD (and the polished styling
+that comes with it) is deferred to a later probe iteration, after the arm64
+toolchain is proven end-to-end.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 try:
+    from kivy.app import App
+    from kivy.core.text import LabelBase
     from kivy.lang import Builder
     from kivy.properties import StringProperty
     from kivy.uix.screenmanager import Screen
-    from kivymd.app import MDApp
 except ImportError as exc:  # pragma: no cover - friendly optional dependency boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
+
+
+_CJK_FONT_PATH = Path(__file__).parent / "assets" / "fonts" / "wqy-microhei.ttc"
+if _CJK_FONT_PATH.is_file():
+    # Replace Kivy's default "Roboto" so unmarked Label widgets render both
+    # Latin and CJK glyphs. WenQuanYi Micro Hei covers ASCII + simplified
+    # Chinese; keep the "Roboto" name so widgets that omit font_name pick it up.
+    LabelBase.register(name="Roboto", fn_regular=str(_CJK_FONT_PATH))
+
 
 _KV = r"""
 #:import dp kivy.metrics.dp
 
 <HomeScreen>:
     name: "home"
-    MDBoxLayout:
+    BoxLayout:
         orientation: "vertical"
         padding: dp(24)
         spacing: dp(16)
-        MDLabel:
+        Label:
             text: "ReversibleMosaic"
-            font_style: "H4"
-            adaptive_height: True
-        MDLabel:
+            font_size: dp(28)
+            size_hint_y: None
+            height: dp(56)
+        Label:
             text: "所有图片仅在本机处理"
-            theme_text_color: "Secondary"
-            adaptive_height: True
+            font_size: dp(16)
+            color: 0.6, 0.6, 0.6, 1
+            size_hint_y: None
+            height: dp(32)
         Widget:
-        MDRaisedButton:
+        Button:
             text: "打码"
-            size_hint_x: 1
+            size_hint_y: None
             height: dp(52)
             on_release: app.open_placeholder("打码")
-        MDRaisedButton:
+        Button:
             text: "恢复"
-            size_hint_x: 1
+            size_hint_y: None
             height: dp(52)
             on_release: app.open_placeholder("恢复")
-        MDRectangleFlatButton:
+        Button:
             text: "教程与安全边界"
-            size_hint_x: 1
+            size_hint_y: None
             height: dp(52)
             on_release: app.root.current = "tutorial"
 
 <TutorialScreen>:
     name: "tutorial"
-    MDBoxLayout:
+    BoxLayout:
         orientation: "vertical"
         padding: dp(24)
         spacing: dp(16)
-        MDLabel:
+        Label:
             text: "使用说明"
-            font_style: "H5"
-            adaptive_height: True
-        MDLabel:
+            font_size: dp(22)
+            size_hint_y: None
+            height: dp(48)
+        Label:
             text: root.tutorial_text
+            text_size: self.width, None
             valign: "top"
-        MDRectangleFlatButton:
+            halign: "left"
+        Button:
             text: "返回首页"
-            size_hint_x: 1
+            size_hint_y: None
             height: dp(52)
             on_release: app.root.current = "home"
 
 <PlaceholderScreen>:
     name: "placeholder"
-    MDBoxLayout:
+    BoxLayout:
         orientation: "vertical"
         padding: dp(24)
         spacing: dp(16)
-        MDLabel:
+        Label:
             text: root.title
-            font_style: "H5"
-            adaptive_height: True
-        MDLabel:
+            font_size: dp(22)
+            size_hint_y: None
+            height: dp(48)
+        Label:
             text: "核心算法与文件链路正在验证。本页面不会上传或保存图片历史。"
-        MDRectangleFlatButton:
+            text_size: self.width, None
+            valign: "top"
+            halign: "left"
+        Button:
             text: "返回首页"
-            size_hint_x: 1
+            size_hint_y: None
             height: dp(52)
             on_release: app.root.current = "home"
 
-MDScreenManager:
+ScreenManager:
     HomeScreen:
     TutorialScreen:
     PlaceholderScreen:
@@ -106,12 +133,10 @@ class PlaceholderScreen(Screen):  # type: ignore[misc]
     title = StringProperty("")
 
 
-class ReversibleMosaicApp(MDApp):  # type: ignore[misc]
+class ReversibleMosaicApp(App):  # type: ignore[misc]
     """Root app; processing screens are added after the core gate passes."""
 
     def build(self):  # type: ignore[no-untyped-def]
-        self.theme_cls.primary_palette = "BlueGray"
-        self.theme_cls.theme_style = "Light"
         return Builder.load_string(_KV)
 
     def open_placeholder(self, title: str) -> None:
