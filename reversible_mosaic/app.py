@@ -27,6 +27,11 @@ if _CJK_FONT_PATH.is_file():
     LabelBase.register(name="Roboto", fn_regular=str(_CJK_FONT_PATH))
 
 
+# Import after font registration so SelfTestScreen labels use wqy-microhei too.
+from reversible_mosaic.ui.self_test import (  # noqa: E402
+    SelfTestScreen,
+)
+
 _KV = r"""
 #:import dp kivy.metrics.dp
 
@@ -63,6 +68,12 @@ _KV = r"""
             size_hint_y: None
             height: dp(52)
             on_release: app.root.current = "tutorial"
+        Button:
+            text: "阶段 0 自检 (临时)"
+            size_hint_y: None
+            height: dp(40)
+            font_size: dp(14)
+            on_release: app.root.current = "self_test"
 
 <TutorialScreen>:
     name: "tutorial"
@@ -112,6 +123,8 @@ ScreenManager:
     HomeScreen:
     TutorialScreen:
     PlaceholderScreen:
+    SelfTestScreen:
+        name: "self_test"
 """
 
 
@@ -131,6 +144,16 @@ class TutorialScreen(Screen):  # type: ignore[misc]
 
 class PlaceholderScreen(Screen):  # type: ignore[misc]
     title = StringProperty("")
+
+
+# SelfTestScreen re-export so Builder resolves the KV widget name.
+__all__ = [
+    "HomeScreen",
+    "PlaceholderScreen",
+    "ReversibleMosaicApp",
+    "SelfTestScreen",
+    "TutorialScreen",
+]
 
 
 class ReversibleMosaicApp(App):  # type: ignore[misc]

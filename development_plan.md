@@ -130,12 +130,31 @@
 - ✅ arm64 APK 可安装、可启动、UI 可读、无网络权限
 - ✅ Kivy 外壳 + SDL2 + libtvg + libwebp 已稳定打包并跑通
 - ✅ 构建工具链稳定（p4a / gradle / libthorvg / GFW 障碍全部落对策；缓存复用）
-- ⏳ **待办**：以下阶段 0 子项尚未在真机验证，退出标准还没全部满足：
-  1. **pyjnius 探针** —— 加回 `requirements`，验证 Java 桥可反射调用 Android SDK（后续选图/权限/MediaStore 的前提）
-  2. **numpy 探针** —— 加回 `requirements`，验证 arm64 native lib 可打包可 import
-  3. **cython v1_optimized 探针** —— 用 p4a 的 cython recipe 或自定义 recipe 打包 `reversible_mosaic/core/algorithm/v1_optimized.pyx`，验证释放 GIL 的长循环可取消
-  4. **pillow 探针** —— 加回 `requirements`，验证 PNG/JPEG 编解码链跑通
-  5. **透明 RGB 零差异 on-device** —— App 内加自检按钮：合成 4×4 RGBA 全透明像素（`[R, G, B, 0]`），跑 `encrypt → decrypt`，`numpy.array_equal(original, restored) == True` 才通过
-  6. **1920×1080 性能扫描** —— 1/10/20 轮真机中位数耗时 + 峰值内存记录进 `docs/probe-report.md`
 
-在这些子项都通过前，阶段 0 的退出标准（"关键依赖可稳定打包、透明 RGB 零差异、平台链路可行"）不算全达。
+### 阶段 0 v5 真机自检（2026-07-28，见 [docs/probe-report.md](docs/probe-report.md)）
+
+**APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v5.apk`
+（SHA-256 `5d6a0d9c6e5a9623b7e6518b25eb77d5a1f69041ce5f1a80e3e972eb9bb4c04c`，34.1 MiB）
+**requirements**：`python3,kivy,pyjnius,numpy,pillow`（Stage 0 batch 1，Cython 走 v6）
+
+**首页临时"阶段 0 自检"入口** → `reversible_mosaic/ui/self_test.py` `SelfTestScreen`（5 探针按钮 + 性能扫描 + 取消 + 结果落 App 私有目录）。
+
+| 子项 | 结果 |
+|---|---|
+| 1. pyjnius 探针 | ✅ `autoclass OK; package=io.placeholder.reversiblemosaic` |
+| 2. numpy 探针 | ✅ `numpy=2.3.0, arr.shape=(4, 4, 4), dtype=uint8` |
+| 3. pillow 探针 | ✅ `PIL=11.3.0, 4x4 RGBA PNG=88B round-trip OK` |
+| 4. 透明 RGB 零差异 on-device | ✅ 4x4 RGBA α=0，rounds 1/5/20 全部**逐字节相等** |
+| 5. Cython v1_optimized | ⏳ NOT_BUILT（预期，v6 目标） |
+| 6. 1920×1080 性能扫描 | ⚠️ 直接跑不动，用 256×256 参考实现替代；外推 20 轮 ≈ 20 min，比 AC-PERF 目标 35 s **慢 34×** |
+
+**256×256 参考实现（真机）中位数**：1 轮 1.311 s / 10 轮 12.787 s / 20 轮 37.625 s；峰值 RSS 275 MiB。
+
+**结论**：阶段 0 退出标准 5/6 完成。Cython v1_optimized 打包 + 接入 pipeline 遗留到 v6/阶段 1，是发布路径的关键前置（AC-PERF 需要 Cython 硬带 30× 加速才能过）。
+
+### 阶段 0 v5 → v6 已知路径
+1. **在项目根加最小 `setup.py`** 让 p4a `--use-setup-py` 编 `reversible_mosaic/core/algorithm/v1.pyx` 为 arm64 `.so`，或者写个自定义 p4a recipe。
+2. **`buildozer.spec` requirements 追加 `cython`**（p4a `install_in_hostpython=True`；只在构建机装）。
+3. **`_probe_v1_cython` 已就绪**：v6 装机后直接 PASS。
+4. **打包顺利后**，`SYNC_PROBES` 里的自检屏按钮保留；阶段 1 才把 Cython lift/permute/diffuse 接入 `reference_v1` 的三个内循环，让 pipeline 真提速。
+5. **numpy 编译坑**：`scripts/wsl_patch_numpy_include.sh` 补 `<unordered_map>` include，NDK r25b clang-14 + libc++ 传递包含缺失导致；本轮 v5 手工执行一次，v6 前若清 `.buildozer/` 需要再跑。建议后续把补丁写进 p4a numpy recipe 的 `apply_patches`。
