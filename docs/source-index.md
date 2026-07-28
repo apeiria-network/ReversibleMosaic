@@ -552,6 +552,42 @@ NDK r25b clang-14 + libc++ 没有 GCC/glibc 的传递包含，numpy 2.3.0 源码
 - 触发条件：`unique.cpp` 出现在
   `.buildozer/android/platform/build-arm64-v8a/build/other_builds/numpy/arm64-v8a__ndk_target_26/numpy/numpy/_core/src/multiarray/`
   之后、meson 编译 `libunique_hash.a` 之前。
+- **v6 已被本地 p4a recipe 覆盖代替**（见下条 `scripts/p4a_local_recipes/numpy/`）；
+  这个脚本仅作为紧急手动兜底。
+
+#### [`scripts/wsl_build_v1_cython.sh`](../scripts/wsl_build_v1_cython.sh)
+v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx` 交叉编译为
+`reversible_mosaic/core/algorithm/v1.cpython-314-aarch64-linux-android.so`，
+直接落在 WSL workspace 的源码树里，让 buildozer 当 loose file 打进 APK。
+- **步骤**：
+  1. `cython -3` 把 `.pyx` → `.c`
+  2. NDK `aarch64-linux-android26-clang -shared -fPIC` 把 `.c` → `.so`
+     链接 target Python 3.14 `libpython3.14.so` + `liblog`
+  3. 目标 Python 3.14 头文件在
+     `.buildozer/android/platform/build-arm64-v8a/build/other_builds/python3/arm64-v8a__ndk_target_26/python3/android-build/android-root/include/python3.14/`
+- **首次冷启动**（`.buildozer/` 不存在或 dist 未建）时目标 Python 头缺席，
+  脚本只做 cython → .c 一步，返回 0；`wsl_build_android.sh` 检测到后继续跑
+  buildozer，dist 建好后**要求二次调用本脚本**才能得到 .so。
+- **谁调用**：`wsl_build_android.sh` 在 rsync + prefetch 之后、buildozer 之前
+  调一次；不进 APK（`scripts/` 在 `source.exclude_dirs`）。
+- **改动指引**：加新 .pyx → 更新脚本里的 `SRC`/`GEN_C`/`OUT_SO` 或改成循环处理
+  多个模块；确保输出 `.so` 名字含 `cpython-<py-major><py-minor>-<abi>-linux-android`
+  这样 CPython 才认。
+
+### p4a 本地 recipe 覆盖
+
+#### [`scripts/p4a_local_recipes/numpy/__init__.py`](../scripts/p4a_local_recipes/numpy/__init__.py)
+- **作用**：v6 引入。本地覆盖 p4a 内置 numpy 2.3.0 recipe，多的一行
+  `patches = ["patches/numpy_unordered_map_include.patch"]` 让 p4a 在解压 numpy
+  源码后自动应用 `<unordered_map>` include 补丁。其他内容与内置 recipe 逐行相等。
+- **谁引用**：`buildozer.spec` 的 `p4a.local_recipes = /home/hydrogen/src/
+  ReversibleMosaic/scripts/p4a_local_recipes`（rsync 到 WSL 后的路径）。
+- **改动指引**：等 p4a 或 numpy 上游修复此 include 后可删；届时把 `patches` 那行
+  去掉即可（其他部分不动，或让 recipe 完全回退到内置版本）。
+
+#### [`scripts/p4a_local_recipes/numpy/patches/numpy_unordered_map_include.patch`](../scripts/p4a_local_recipes/numpy/patches/numpy_unordered_map_include.patch)
+- 标准 unified diff (`-p1`)，只在
+  `numpy/_core/src/multiarray/unique.cpp` 加一行 `#include <unordered_map>`。
 
 ### 运行前置
 
@@ -568,20 +604,27 @@ NDK r25b clang-14 + libc++ 没有 GCC/glibc 的传递包含，numpy 2.3.0 源码
 
 ### [`buildozer.spec`](../buildozer.spec)
 - **作用**：Android 打包配置。
-- **当前状态**（阶段 0 探针 v5，已构建 + 真机自检通过）：
+- **当前状态**（阶段 0 探针 v6，Cython 已接入 setup.py）：
   - `title = ReversibleMosaic` / `package.name = reversiblemosaic` /
     `package.domain = io.placeholder`
-  - `source.include_exts = py,kv,png,jpg,jpeg,json,md,ttf,ttc,txt`
-    —— 确保字体、markdown、图标都进 APK
-  - `source.exclude_dirs = .git,.venv,.idea,tests,artifacts,build,bin,.buildozer,docs,vendor`
+  - `source.include_exts = py,pyx,kv,png,jpg,jpeg,json,md,ttf,ttc,txt`
+    —— 加 `pyx` 让 Cython 源码进 tarball（p4a 会 cythonize 编译）
+  - `source.exclude_dirs = .git,.venv,.idea,tests,artifacts,build,bin,.buildozer,docs,vendor,scripts`
+    —— 加 `scripts` 让构建脚本 + p4a 本地 recipe 不进 APK
   - `version = 0.1.0`
-  - **`requirements = python3,kivy,pyjnius,numpy,pillow`** —— 阶段 0 第一批
-    原生依赖；`cython` + v1_optimized 走第二批（v6）
+  - **`requirements = python3,kivy,pyjnius,numpy,pillow,cython`** —— v6 追加
+    `cython`；p4a 的 cython recipe `install_in_hostpython=True`，只在构建机装
   - `orientation = portrait`
   - `android.api = 34` / `android.minapi = 26` / `android.ndk = 25b`
   - `android.archs = arm64-v8a`
   - `android.private_storage = True`
   - `android.logcat_filters = *:S python:D SDL:D SDLActivity:D AndroidRuntime:E`
+  - **`p4a.setup_py = 1`** —— v6 打开；让 buildozer 传 `--use-setup-py`
+    给 p4a，触发 `pip install --no-deps -e .` 进而调 `setup.py::cythonize()`
+    把 `reversible_mosaic/core/algorithm/v1.pyx` 编成 arm64 `.so`
+  - **`p4a.local_recipes = /home/hydrogen/src/ReversibleMosaic/scripts/p4a_local_recipes`**
+    —— v6 打开；覆盖 p4a 内置的 numpy recipe 以自动应用
+    `<unordered_map>` include 补丁（NDK r25b clang-14 + libc++ 传递包含缺失）
   - `p4a.source_dir = /home/hydrogen/vendor/python-for-android` —— 指向本地
     p4a checkout；跳过 pip 装 p4a
 - **改动指引**：
@@ -589,6 +632,20 @@ NDK r25b clang-14 + libc++ 没有 GCC/glibc 的传递包含，numpy 2.3.0 源码
   - `package.domain = io.placeholder` 只是探针占位；发布前要换成正式域名。
   - 生产发布还需要 signing 配置（keystore 路径、alias、密码 —— **绝不
     入库**）。
+
+### [`setup.py`](../setup.py)
+- **作用**：v6 引入。项目根的最小 setuptools 钩子，只负责让
+  `Cython.Build.cythonize()` 把 `reversible_mosaic/core/algorithm/v1.pyx`
+  编成扩展模块。项目元数据 (name/version/deps) 全部走 `pyproject.toml`。
+- **PC 行为**：`sys.platform == "win32"` 时跳过（`.pyx` 里的
+  `__uint128_t` 是 GCC/clang 扩展，MSVC 没有）；PC dev 依旧走
+  `reference_v1` 纯 Python 参考实现。
+- **Android 行为**：p4a 用 `--use-setup-py` 触发 `pip install -e .`
+  → `cythonize()` → cross-compile `.pyx` → 得到
+  `reversible_mosaic/core/algorithm/v1.cpython-<abi>-aarch64-linux-android.so`
+  → `import reversible_mosaic.core.algorithm.v1` 装机后可用。
+- **override**：设 `REVERSIBLE_MOSAIC_BUILD_CYTHON=1` 强制打开、`=0` 强制关闭。
+- **改动指引**：加新 .pyx 文件：在 `CYTHON_MODULES` 列表里追加路径即可。
 
 ### [`pyproject.toml`](../pyproject.toml)
 - PEP 621 项目配置：`[project]` 的 name/version/dependencies；
@@ -644,6 +701,8 @@ NDK r25b clang-14 + libc++ 没有 GCC/glibc 的传递包含，numpy 2.3.0 源码
 | 诊断 GitHub / 镜像可达性 | `scripts/probe_mirrors.sh` / `probe_git_mirrors.sh` |
 | 加/改字体 | `reversible_mosaic/assets/fonts/` + `app.py` 里 `_CJK_FONT_PATH` |
 | 加/改阶段 0 真机探针 | `reversible_mosaic/ui/self_test.py` 的 `SYNC_PROBES`；测试同步在 `tests/unit/test_self_test_probes.py` |
+| 加/改 Cython .pyx 模块 | 新增 `.pyx` → 追加到 `setup.py::CYTHON_MODULES` → PC 侧跑 `python setup.py build_ext --inplace`（非 MSVC）→ WSL 侧 v6+ 自动 cross-compile |
+| 覆盖 p4a 内置 recipe（打补丁、换版本） | `scripts/p4a_local_recipes/<name>/__init__.py` + `patches/`；`buildozer.spec` 已配 `p4a.local_recipes` 指向它 |
 
 ---
 
