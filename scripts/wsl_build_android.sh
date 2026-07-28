@@ -16,9 +16,12 @@ LOG="/home/hydrogen/src/reversible-mosaic-build.log"
 P4A_CACHE="${P4A_CACHE:-$HOME/.p4a-source-cache}"
 P4A_PACKAGES_DIR="$WORKSPACE/.buildozer/android/platform/build-arm64-v8a/packages"
 
-rm -rf "$WORKSPACE"
+# Incremental sync from Windows into WSL: preserve $WORKSPACE/.buildozer/ so
+# recipes/other_builds (CPython/openssl/SDL2/kivy) don't rebuild from scratch.
+# `--delete` still trims files removed from Windows, but rsync excludes both
+# from transfer AND deletion, so .buildozer/ stays intact.
 mkdir -p "$WORKSPACE"
-rsync -a \
+rsync -a --delete \
     --exclude ".git/" \
     --exclude ".venv/" \
     --exclude ".idea/" \
