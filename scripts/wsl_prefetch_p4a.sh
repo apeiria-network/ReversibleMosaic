@@ -32,6 +32,9 @@ RECIPES=(
   # rewritten by GIT_CONFIG in wsl_build_android.sh; Pillow is a plain GitHub
   # tarball so must be prefetched through the mirror.
   "Pillow|https://github.com/python-pillow/Pillow/archive/11.3.0.tar.gz"
+  # Stage 0 batch 2 additions (v6): cython is a plain GitHub tarball and p4a's
+  # cython recipe installs it into host Python for its own recipe builds.
+  "cython|https://github.com/cython/cython/archive/0.29.36.tar.gz"
 )
 
 mirror_url() {

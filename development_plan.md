@@ -152,9 +152,46 @@
 
 **结论**：阶段 0 退出标准 5/6 完成。Cython v1_optimized 打包 + 接入 pipeline 遗留到 v6/阶段 1，是发布路径的关键前置（AC-PERF 需要 Cython 硬带 30× 加速才能过）。
 
-### 阶段 0 v5 → v6 已知路径
-1. **在项目根加最小 `setup.py`** 让 p4a `--use-setup-py` 编 `reversible_mosaic/core/algorithm/v1.pyx` 为 arm64 `.so`，或者写个自定义 p4a recipe。
-2. **`buildozer.spec` requirements 追加 `cython`**（p4a `install_in_hostpython=True`；只在构建机装）。
-3. **`_probe_v1_cython` 已就绪**：v6 装机后直接 PASS。
-4. **打包顺利后**，`SYNC_PROBES` 里的自检屏按钮保留；阶段 1 才把 Cython lift/permute/diffuse 接入 `reference_v1` 的三个内循环，让 pipeline 真提速。
-5. **numpy 编译坑**：`scripts/wsl_patch_numpy_include.sh` 补 `<unordered_map>` include，NDK r25b clang-14 + libc++ 传递包含缺失导致；本轮 v5 手工执行一次，v6 前若清 `.buildozer/` 需要再跑。建议后续把补丁写进 p4a numpy recipe 的 `apply_patches`。
+### 阶段 0 v5 → v6 演进
+1. **`setup.py`** 项目根就位（PC 侧 Cython 编译入口；MSVC 自动跳过），
+   `p4a.setup_py = 1` 试过一轮：**p4a 不会自动跑 pip install**，模式下
+   APK 里只剩 `main.pyc`，`reversible_mosaic/` 整个丢失 —— 回退到 loose file。
+2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在 buildozer 前把
+   `v1.pyx` 交叉编译为 `v1.cpython-314-aarch64-linux-android.so`
+   （Cython 3.x + NDK `aarch64-linux-android26-clang` + target Python 3.14 头），
+   直接落在源码树；`buildozer.spec` `source.include_exts` 加 `so`；p4a 当
+   loose file 打进 APK。
+3. **`_probe_v1_cython` v6 装机 PASS**：`Cython 模块加载 OK;
+   lift_forward/lift_inverse 复原一致`。
+4. **numpy patch 已持久化**：`scripts/p4a_local_recipes/numpy/` 覆盖 p4a
+   内置 recipe，加 `patches = ["patches/numpy_unordered_map_include.patch"]`；
+   清 `.buildozer/` 后自动应用，无需人工。
+5. **pipeline 集成不在 v6**：性能扫描仍跑 `reference_v1` 纯 Python 参考实现，
+   Cython inner loops 只是"装进 APK 里"。真提速走阶段 1 的 wire-up。
+
+### 阶段 0 v6 真机自检（2026-07-28，见 [docs/probe-report.md](docs/probe-report.md)）
+
+**APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v6.apk`
+（SHA-256 `928e478aeb0939bb8396c5d24e6cb89cc25c90dd94da713d217a3c34fbbdf7fd`，34.1 MiB）
+
+| 子项 | 结果 |
+|---|---|
+| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; lift_forward/lift_inverse 复原一致`** |
+| 其他 4 项 | ✅ 无回归（pyjnius / numpy / pillow / V1 参考实现全部保持 PASS） |
+| 6. 256×256 性能扫描（还是参考实现） | 20 轮 median 25.6 s，20 轮 p95 25.6 s（v5 是 37.6 s / 49.1 s，抖动而已） |
+
+**阶段 0 达成 6/6，可以转向阶段 1。**
+
+### 阶段 1 首要待办
+1. **Cython 接入 pipeline**：把 `reference_v1.py` 里 `_lift_forward` / `_lift_inverse`
+   / `_permute_forward` / `_permute_inverse` / `_diffuse_forward` / `_diffuse_inverse`
+   六个内循环替换为 `reversible_mosaic.core.algorithm.v1` 的 Cython 版本；
+   保留纯 Python 版本做规范 oracle（PC dev 环境或 Cython 不可用时兜底）。
+   `registry.py` 里让 V1 encrypt/decrypt 优先跑 Cython 变体。
+2. **重新真机基准 1920×1080**：Cython 接入后，AC-PERF 目标（1 轮 ≤ 3 s、
+   10 轮 ≤ 18 s、20 轮 ≤ 35 s）应能达到；否则需再优化或考虑 C/Rust 迁移。
+3. **视觉验收准备**：按 §12.3 组织 3 名检查者对固定 20 张图片做 1/5/10/20
+   轮结果的"人脸/文字/主体是否可辨认"评价，并把像素变化率 / 相邻相关性 /
+   边缘相似度阈值冻结进需求附录。
+4. **V1 算法冻结**：`docs/algorithm-v1.md` 标 `frozen`；此后任何像素规则改动
+   必须新增 V2，不能改 V1 字节输出（`tests/vectors/vectors.json` 是黄金锚点）。

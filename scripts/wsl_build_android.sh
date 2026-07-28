@@ -53,6 +53,16 @@ export PATH="$BUILD_VENV/bin:$PATH"
 export VIRTUAL_ENV="$BUILD_VENV"
 unset PYTHONHOME
 
+# Cross-compile the V1 Cython inner loops for arm64 Python 3.14 into a `.so`
+# and drop it into the source tree so buildozer bundles it as a loose file.
+# On the very first (clean) build the target Python doesn't exist yet, so
+# this script emits the .c file only and exits 0 — buildozer will then build
+# the dist and a subsequent rerun of wsl_build_android.sh will finish the
+# clang link. Safe to run every build (idempotent).
+bash "$WORKSPACE/scripts/wsl_build_v1_cython.sh" || {
+    echo "[wsl_build_android] v1 cython step failed; will retry after buildozer builds the dist"
+}
+
 # p4a's sdl2_image/sdl2_mixer/sdl2_ttf recipes and some others run `git clone
 # https://github.com/...` for submodules during prebuild. github.com is DNS-
 # hijacked on this host, so redirect all github.com clones to a public mirror
