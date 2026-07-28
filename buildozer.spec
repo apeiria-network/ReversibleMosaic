@@ -7,9 +7,9 @@ source.include_exts = py,kv,png,jpg,jpeg,json,md,ttf,ttc,txt
 source.exclude_dirs = .git,.venv,.idea,tests,artifacts,build,bin,.buildozer,docs,vendor
 source.include_patterns = main.py
 version = 0.1.0
-# Minimal probe requirements: verify Kivy + arm64 build first,
-# then re-add kivymd/pillow/numpy/pyjnius one at a time.
-requirements = python3,kivy
+# Stage 0 batch 1: add pyjnius + numpy + pillow together (all official p4a
+# recipes, low risk when bundled). Cython + v1_optimized ships in batch 2.
+requirements = python3,kivy,pyjnius,numpy,pillow
 orientation = portrait
 fullscreen = 0
 android.api = 34

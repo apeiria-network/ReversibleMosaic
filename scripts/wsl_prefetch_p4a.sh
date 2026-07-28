@@ -28,6 +28,10 @@ RECIPES=(
   "libthorvg|https://github.com/thorvg/thorvg/archive/refs/tags/v1.0.5.tar.gz"
   "pyjnius|https://github.com/kivy/pyjnius/archive/1.7.0.zip"
   "kivy|https://github.com/kivy/kivy/archive/2.3.1.zip"
+  # Stage 0 batch 1 additions (pyjnius/numpy/pillow). numpy is git+https and is
+  # rewritten by GIT_CONFIG in wsl_build_android.sh; Pillow is a plain GitHub
+  # tarball so must be prefetched through the mirror.
+  "Pillow|https://github.com/python-pillow/Pillow/archive/11.3.0.tar.gz"
 )
 
 mirror_url() {

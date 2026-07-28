@@ -389,6 +389,37 @@ Intent、剪贴板）在阶段 2 才写。
 ### [`ui/__init__.py`](../reversible_mosaic/ui/__init__.py)
 - 仅 docstring `"""UI-layer helpers (view models + Kivy screens)."""`。
 
+### [`ui/self_test.py`](../reversible_mosaic/ui/self_test.py)
+- **作用**：**阶段 0 临时诊断屏**。5 个探针按钮（pyjnius / numpy / pillow /
+  V1 参考实现透明 RGBA / V1 Cython 优化）+ 性能扫描按钮 + 取消按钮 +
+  可滚动结果 TextInput。用于在真机上验证每个 arm64 原生依赖打包 +
+  加载 + 运行是否正常。阶段 0 退出后从首页删入口（`app.py` 里 
+  `"阶段 0 自检 (临时)"` Button），本模块保留以做回归。
+- **导出**：
+  - `SelfTestScreen(Screen)`：程序化构建 widget 树（不用 KV），
+    在 `__init__` 里挂 5 个探针按钮 + 性能扫描 + 取消 + 清空结果 + 返回首页。
+    perf 扫描跑 `threading.Thread`，通过 `Clock.schedule_once` 回主线程更新
+    Label；取消用 `threading.Event`。
+  - `SYNC_PROBES`：`(label, callback)` 列表，同步探针；每项独立可点。
+  - 模块级探针函数（下划线开头，测试可直接调用）：
+    `_probe_pyjnius / _probe_numpy / _probe_pillow /
+    _probe_reference_v1 / _probe_v1_cython`。
+  - 辅助：`_peak_rss_bytes()`（stdlib `resource` 优先, fallback
+    `/proc/self/status`）、`_fmt_bytes()`。
+- **数据落盘**：性能扫描完成时写 `{App.user_data_dir}/stage0_perf.json`
+  （字段：implementation、resolution、rows[rounds/iterations/median_s/p95_s/
+  peak_rss_bytes]、cancelled、timestamp、python、machine）。
+- **谁用它**：`app.py` import + 首页 "阶段 0 自检 (临时)" 按钮跳转；
+  `tests/unit/test_self_test_probes.py` 覆盖 PC 端可跑的 4 个探针。
+- **改动指引**：
+  - **临时模块**，不要在这里放生产逻辑；生产屏（EncodeScreen 等）走 view_models。
+  - 加新探针：在 `SYNC_PROBES` 追加 `("标签", _probe_xxx)`；探针必须
+    返回字符串或抛异常 —— UI 侧统一 catch。
+  - 性能扫描目前跑 256x256 reference —— 阶段 1 把 Cython 接到 pipeline
+    后可换成 1920x1080 optimized。
+  - 阶段 0 退出后：只删 `app.py` 里的 HomeScreen 按钮和 KV `SelfTestScreen:`
+    条目；保留本文件供回归。
+
 ---
 
 ## 资源（`reversible_mosaic/assets/`）
@@ -426,6 +457,7 @@ Intent、剪贴板）在阶段 2 才写。
 | [`test_pipeline.py`](../tests/unit/test_pipeline.py) | `core/pipeline.py` | encrypt→decrypt 闭环、stage 顺序、cancel 传递 |
 | [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset |
 | [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射 |
+| [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
@@ -511,6 +543,16 @@ HEAD 探测 5 个 GitHub 加速代理（`mirror.ghproxy.com`、`ghfast.top`、
 **必须在能 import `pythonforandroid` 的环境里跑**（WSL 的 build-venv）。用于
 让预取脚本对齐 URL / 文件名。
 
+#### [`scripts/wsl_patch_numpy_include.sh`](../scripts/wsl_patch_numpy_include.sh)
+一次性补丁：给已解压的 numpy 2.3.0 `unique.cpp` 追加 `#include <unordered_map>`。
+NDK r25b clang-14 + libc++ 没有 GCC/glibc 的传递包含，numpy 2.3.0 源码只 include
+了 `<unordered_set>`，编译 `libunique_hash.a` 时报 "no template named
+'unordered_map'"。幂等（已打过就跳）；每次清 `.buildozer/` 后必须再跑一次。
+理想做法是把补丁抬到 p4a 的 numpy `apply_patches`；本轮 Stage 0 v5 走脚本手工。
+- 触发条件：`unique.cpp` 出现在
+  `.buildozer/android/platform/build-arm64-v8a/build/other_builds/numpy/arm64-v8a__ndk_target_26/numpy/numpy/_core/src/multiarray/`
+  之后、meson 编译 `libunique_hash.a` 之前。
+
 ### 运行前置
 
 - 所有 `wsl_*.sh` 需要 WSL 里已就绪：
@@ -526,15 +568,15 @@ HEAD 探测 5 个 GitHub 加速代理（`mirror.ghproxy.com`、`ghfast.top`、
 
 ### [`buildozer.spec`](../buildozer.spec)
 - **作用**：Android 打包配置。
-- **当前状态**（阶段 0 探针 v4）：
+- **当前状态**（阶段 0 探针 v5，已构建 + 真机自检通过）：
   - `title = ReversibleMosaic` / `package.name = reversiblemosaic` /
     `package.domain = io.placeholder`
   - `source.include_exts = py,kv,png,jpg,jpeg,json,md,ttf,ttc,txt`
     —— 确保字体、markdown、图标都进 APK
   - `source.exclude_dirs = .git,.venv,.idea,tests,artifacts,build,bin,.buildozer,docs,vendor`
   - `version = 0.1.0`
-  - **`requirements = python3,kivy`** —— 最小探针；`pillow` / `numpy` /
-    `cython` / `pyjnius` 分批加回
+  - **`requirements = python3,kivy,pyjnius,numpy,pillow`** —— 阶段 0 第一批
+    原生依赖；`cython` + v1_optimized 走第二批（v6）
   - `orientation = portrait`
   - `android.api = 34` / `android.minapi = 26` / `android.ndk = 25b`
   - `android.archs = arm64-v8a`
@@ -543,7 +585,7 @@ HEAD 探测 5 个 GitHub 加速代理（`mirror.ghproxy.com`、`ghfast.top`、
   - `p4a.source_dir = /home/hydrogen/vendor/python-for-android` —— 指向本地
     p4a checkout；跳过 pip 装 p4a
 - **改动指引**：
-  - 加 requirement 后**不要**一次加多个；每次加一个跑一次探针，出问题好定位。
+  - 加 requirement 后**不要**一次加多个；每次加一个（或一小批同类）跑一次探针，出问题好定位。
   - `package.domain = io.placeholder` 只是探针占位；发布前要换成正式域名。
   - 生产发布还需要 signing 配置（keystore 路径、alias、密码 —— **绝不
     入库**）。
@@ -601,6 +643,7 @@ HEAD 探测 5 个 GitHub 加速代理（`mirror.ghproxy.com`、`ghfast.top`、
 | 加 p4a recipe / 换 recipe 版本 | 更新 `scripts/wsl_prefetch_p4a.sh` 的 RECIPES 数组 + 重跑一次 |
 | 诊断 GitHub / 镜像可达性 | `scripts/probe_mirrors.sh` / `probe_git_mirrors.sh` |
 | 加/改字体 | `reversible_mosaic/assets/fonts/` + `app.py` 里 `_CJK_FONT_PATH` |
+| 加/改阶段 0 真机探针 | `reversible_mosaic/ui/self_test.py` 的 `SYNC_PROBES`；测试同步在 `tests/unit/test_self_test_probes.py` |
 
 ---
 
