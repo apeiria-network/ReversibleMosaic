@@ -129,7 +129,7 @@ def _probe_reference_v1() -> str:
     # alpha stays 0 for every pixel — this is the transparent-RGB preservation case.
 
     lines: list[str] = []
-    for rounds in (1, 5, 20):
+    for rounds in (2, 5, 20):
         encrypted = encrypt(original, seed=500000, rounds=rounds)
         restored = decrypt(encrypted, seed=500000, rounds=rounds)
         if not np.array_equal(original, restored):
@@ -211,7 +211,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             root.add_widget(btn)
 
         perf_btn = Button(
-            text="性能扫描 (1920x1080 RGB, 1/5/10/20 轮, 5 次中位数)",
+            text="性能扫描 (1920x1080 RGB, 2/5/10/20 轮, 5 次中位数)",
             size_hint_y=None,
             height=dp(52),
         )
@@ -334,7 +334,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         original = rng.integers(0, 256, size=(height, width, 3), dtype=np.uint8)
 
         rows: list[dict[str, Any]] = []
-        for rounds in (1, 5, 10, 20):
+        for rounds in (2, 5, 10, 20):
             if self._perf_cancel.is_set():
                 break
             durations: list[float] = []

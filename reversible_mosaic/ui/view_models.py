@@ -16,7 +16,7 @@ from reversible_mosaic.domain.share_code import (
     parse_share_code,
 )
 
-VALID_ROUNDS = (1, 5, 10, 20)
+VALID_ROUNDS = (2, 5, 10, 20)
 DEFAULT_ROUNDS = 5
 
 

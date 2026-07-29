@@ -11,7 +11,7 @@ import numpy as np
 from reversible_mosaic.core.algorithm.reference_v1 import decrypt, encrypt
 
 _CASES = (
-    ("rgb_1x1_r1_seed0", 1, 1, 3, 0, 1),
+    ("rgb_1x1_r2_seed0", 1, 1, 3, 0, 2),
     ("rgba_3x2_r5_seed500000", 3, 2, 4, 500000, 5),
     ("rgb_5x3_r10_seed9999999999", 5, 3, 3, 9_999_999_999, 10),
     ("rgba_1x7_r20_seed123", 1, 7, 4, 123, 20),

@@ -95,7 +95,7 @@ def test_compute_metrics_rejects_non_rgb() -> None:
 
 def test_compute_metrics_as_dict_keys() -> None:
     image = _gradient_image(8, 8)
-    scrambled = encrypt(image, 500_000, 1)
+    scrambled = encrypt(image, 500_000, 2)
     metrics = compute_metrics(image, scrambled)
     assert set(metrics.as_dict().keys()) == {
         "pixel_change_rate",

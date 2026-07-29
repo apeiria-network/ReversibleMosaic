@@ -30,7 +30,7 @@ def test_pillow_probe_round_trips_rgba() -> None:
 def test_reference_v1_probe_covers_transparent_rgba() -> None:
     result = self_test._probe_reference_v1()
     assert "零差异" in result
-    for rounds in (1, 5, 20):
+    for rounds in (2, 5, 20):
         assert f"rounds={rounds}" in result
 
 

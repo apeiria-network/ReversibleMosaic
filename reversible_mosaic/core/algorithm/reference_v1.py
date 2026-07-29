@@ -1,14 +1,37 @@
-"""Reference implementation of the not-yet-released V1 pixel protocol.
+"""Reference implementation of the V1 pixel protocol.
+
+V1 uses **pure reversible spatial permutation**: each round performs a single
+forward-scan pass in which every pixel derives a partner index via SplitMix64
+constrained to a modular (2R+1)x(2R+1) window and swaps in-place when the
+partner index is higher (canonical direction). Iterating in the reverse
+direction during decode replays the same swap sequence and undoes the
+composed permutation exactly.
+
+Key properties:
+
+- **Palette-preserving**: pixel values are only moved, never modified. The
+  encrypted output has the exact same multiset of pixels as the input.
+- **Alpha-preserving**: RGB and Alpha channels move together as a unit; Alpha
+  values are never touched by arithmetic.
+- **Reversible**: forward∘inverse = identity for any legal input.
+- **Deterministic**: same (input, seed, rounds) always produces the same
+  bytes; no ``hash()``, no thread-local state.
 
 The byte-level behavior in this module becomes immutable only after the V1
-specification and fixed vectors are explicitly marked frozen.
+specification and fixed vectors are explicitly marked frozen. Cython
+acceleration (:mod:`reversible_mosaic.core.algorithm.v1`) must be byte-identical
+to this reference.
+
+Colour-transform sub-ops (lift + diffuse) that appeared in the pre-freeze V1
+draft have been extracted to
+:mod:`reversible_mosaic.core.algorithm.color_transform` as a P1 candidate;
+they are **not** called from production ``encrypt`` / ``decrypt``.
 """
 
 from __future__ import annotations
 
 import hashlib
 import struct
-from collections.abc import Iterator
 
 from reversible_mosaic.core.algorithm.contracts import (
     VALID_ROUNDS,
@@ -23,6 +46,18 @@ from reversible_mosaic.core.algorithm.contracts import (
 _MASK64 = (1 << 64) - 1
 _DOMAIN = b"reversible_mosaic/algorithm/v1\x00"
 
+# Neighbourhood radius R = max(RADIUS_MIN, min(W, H) // RADIUS_DIVISOR).
+# The formula gives ~6% of the image's short edge on realistic photos and
+# floors at 8 px for very small images so single-pixel/tiny inputs still
+# permute meaningfully. See docs/algorithm-v1.md for the design rationale.
+_RADIUS_MIN = 8
+_RADIUS_DIVISOR = 32
+
+# Domain tag applied to the neighbourhood-swap round key. Kept identical to
+# the pre-freeze draft's permute stage so vector regeneration is a byte-level
+# translation from the old encoding.
+_SWAP_DOMAIN = 0x22
+
 
 def _splitmix64(value: int) -> int:
     value = (value + 0x9E3779B97F4A7C15) & _MASK64
@@ -32,6 +67,13 @@ def _splitmix64(value: int) -> int:
 
 
 def _derive_words(spec: ImageSpec, seed: int) -> tuple[int, int, int, int]:
+    """Derive 4 x 64-bit master words from (seed, dims, mode).
+
+    Four words are returned even though V1 only reads ``words[1]`` for the
+    swap-round-key derivation. The extra three slots are reserved for future
+    P1 wiring (colour transform, secondary shufflers) without needing a
+    schema bump on the derivation.
+    """
     if not 0 <= seed <= 9_999_999_999:
         raise AlgorithmError("扰动种子超出 V1 允许范围。")
     mode_id = 3 if spec.mode == "RGB" else 4
@@ -43,84 +85,69 @@ def _round_key(word: int, round_index: int, domain: int) -> int:
     return _splitmix64(word ^ (round_index * 0xD1342543DE82EF95) ^ domain)
 
 
-def _mask3(key: int, index: int) -> tuple[int, int, int]:
-    value = _splitmix64(key ^ index)
-    return value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF
-
-
 def _checkpoint(cancel: CancellationProbe | None) -> None:
     if cancel is not None and cancel():
         raise CancellationRequested("处理已取消。")
 
 
-def _lift_forward(flat: PixelArray, key: int) -> None:
-    for index, pixel in enumerate(flat):
-        m0, m1, m2 = _mask3(key, index)
-        r, g, b = (int(pixel[0]), int(pixel[1]), int(pixel[2]))
-        r = (r + 3 * g + 5 * b + m0) & 0xFF
-        g = (g + 5 * b + 7 * r + m1) & 0xFF
-        b = (b + 7 * r + 3 * g + m2) & 0xFF
-        pixel[0], pixel[1], pixel[2] = r, g, b
+def _radius_for(width: int, height: int) -> int:
+    """Adaptive neighbourhood radius: R = max(8, min(W, H) // 32)."""
+    return max(_RADIUS_MIN, min(width, height) // _RADIUS_DIVISOR)
 
 
-def _lift_inverse(flat: PixelArray, key: int) -> None:
-    for index, pixel in enumerate(flat):
-        m0, m1, m2 = _mask3(key, index)
-        r, g, b = (int(pixel[0]), int(pixel[1]), int(pixel[2]))
-        b = (b - 7 * r - 3 * g - m2) & 0xFF
-        g = (g - 5 * b - 7 * r - m1) & 0xFF
-        r = (r - 3 * g - 5 * b - m0) & 0xFF
-        pixel[0], pixel[1], pixel[2] = r, g, b
+def _neighborhood_swap_forward(
+    pixels: PixelArray, key: int, radius: int
+) -> None:
+    """Forward-scan neighbourhood swap in place.
+
+    For each pixel ``i = y*W + x`` in scan order, derive a partner
+    ``(yj, xj)`` uniformly in the modular ``(2R+1)^2`` window around
+    ``(y, x)``. Swap when ``j > i`` so each unordered pair fires exactly
+    once from its lower-indexed member. RGBA rows move as a unit — Alpha
+    is never separated from its RGB.
+    """
+    height, width, _ = pixels.shape
+    denom = 2 * radius + 1
+    for y in range(height):
+        for x in range(width):
+            i = y * width + x
+            offset = _splitmix64(key ^ i)
+            dy = ((offset >> 32) & _MASK64) % denom - radius
+            dx = (offset & 0xFFFFFFFF) % denom - radius
+            yj = (y + dy) % height
+            xj = (x + dx) % width
+            j = yj * width + xj
+            if j > i:
+                tmp = pixels[y, x].copy()
+                pixels[y, x] = pixels[yj, xj]
+                pixels[yj, xj] = tmp
 
 
-def _swap_sequence(length: int, key: int) -> Iterator[tuple[int, int]]:
-    for index in range(length - 1, 0, -1):
-        random_word = _splitmix64(key ^ index)
-        yield index, (random_word * (index + 1)) >> 64
-
-
-def _permute_forward(flat: PixelArray, key: int) -> None:
-    for index, other in _swap_sequence(len(flat), key):
-        flat[[index, other]] = flat[[other, index]]
-
-
-def _permute_inverse(flat: PixelArray, key: int) -> None:
-    for index in range(1, len(flat)):
-        random_word = _splitmix64(key ^ index)
-        other = (random_word * (index + 1)) >> 64
-        flat[[index, other]] = flat[[other, index]]
-
-
-def _diffuse_forward(flat: PixelArray, key: int, reverse: bool) -> None:
-    previous = list(_mask3(key, _MASK64))
-    indices = range(len(flat) - 1, -1, -1) if reverse else range(len(flat))
-    for index in indices:
-        mask = _mask3(key, index)
-        source = [int(flat[index, channel]) for channel in range(3)]
-        output = [
-            (source[channel] + previous[(channel + 1) % 3] + mask[channel]) & 0xFF
-            for channel in range(3)
-        ]
-        flat[index, :3] = output
-        previous = output
-
-
-def _diffuse_inverse(flat: PixelArray, key: int, reverse: bool) -> None:
-    previous = list(_mask3(key, _MASK64))
-    indices = range(len(flat) - 1, -1, -1) if reverse else range(len(flat))
-    for index in indices:
-        mask = _mask3(key, index)
-        encoded = [int(flat[index, channel]) for channel in range(3)]
-        flat[index, :3] = [
-            (encoded[channel] - previous[(channel + 1) % 3] - mask[channel]) & 0xFF
-            for channel in range(3)
-        ]
-        previous = encoded
+def _neighborhood_swap_inverse(
+    pixels: PixelArray, key: int, radius: int
+) -> None:
+    """Undo :func:`_neighborhood_swap_forward` by walking indices in reverse."""
+    height, width, _ = pixels.shape
+    denom = 2 * radius + 1
+    for y in range(height - 1, -1, -1):
+        for x in range(width - 1, -1, -1):
+            i = y * width + x
+            offset = _splitmix64(key ^ i)
+            dy = ((offset >> 32) & _MASK64) % denom - radius
+            dx = (offset & 0xFFFFFFFF) % denom - radius
+            yj = (y + dy) % height
+            xj = (x + dx) % width
+            j = yj * width + xj
+            if j > i:
+                tmp = pixels[y, x].copy()
+                pixels[y, x] = pixels[yj, xj]
+                pixels[yj, xj] = tmp
 
 
 def _validate(pixels: PixelArray, rounds: int) -> ImageSpec:
     if rounds not in VALID_ROUNDS:
-        raise AlgorithmError("轮数仅允许 1、5、10 或 20。")
+        allowed = "、".join(str(n) for n in sorted(VALID_ROUNDS))
+        raise AlgorithmError(f"轮数仅允许 {allowed}。")
     if pixels.ndim != 3 or pixels.shape[2] not in (3, 4):
         raise AlgorithmError("V1 仅支持 RGB 或 RGBA 像素矩阵。")
     spec = ImageSpec(pixels.shape[1], pixels.shape[0], "RGB" if pixels.shape[2] == 3 else "RGBA")
@@ -134,19 +161,16 @@ def encrypt(
     rounds: int,
     cancel: CancellationProbe | None = None,
 ) -> PixelArray:
-    """Return a scrambled copy of a normalized RGB/RGBA matrix."""
+    """Return a spatially-scrambled copy of a normalized RGB/RGBA matrix."""
     spec = _validate(pixels, rounds)
     words = _derive_words(spec, seed)
     output = pixels.copy(order="C")
-    flat = output.reshape(-1, spec.channels)
+    radius = _radius_for(spec.width, spec.height)
     for round_index in range(rounds):
         _checkpoint(cancel)
-        _lift_forward(flat, _round_key(words[0], round_index, 0x11))
-        _checkpoint(cancel)
-        _permute_forward(flat, _round_key(words[1], round_index, 0x22))
-        _checkpoint(cancel)
-        _diffuse_forward(flat, _round_key(words[2], round_index, 0x33), False)
-        _diffuse_forward(flat, _round_key(words[3], round_index, 0x44), True)
+        _neighborhood_swap_forward(
+            output, _round_key(words[1], round_index, _SWAP_DOMAIN), radius
+        )
     return output
 
 
@@ -160,13 +184,10 @@ def decrypt(
     spec = _validate(pixels, rounds)
     words = _derive_words(spec, seed)
     output = pixels.copy(order="C")
-    flat = output.reshape(-1, spec.channels)
+    radius = _radius_for(spec.width, spec.height)
     for round_index in range(rounds - 1, -1, -1):
         _checkpoint(cancel)
-        _diffuse_inverse(flat, _round_key(words[3], round_index, 0x44), True)
-        _diffuse_inverse(flat, _round_key(words[2], round_index, 0x33), False)
-        _checkpoint(cancel)
-        _permute_inverse(flat, _round_key(words[1], round_index, 0x22))
-        _checkpoint(cancel)
-        _lift_inverse(flat, _round_key(words[0], round_index, 0x11))
+        _neighborhood_swap_inverse(
+            output, _round_key(words[1], round_index, _SWAP_DOMAIN), radius
+        )
     return output

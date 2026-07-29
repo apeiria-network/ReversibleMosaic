@@ -9,7 +9,7 @@ Usage:
 For each image in ``--sources`` (RGB/RGBA PNG or plain RGB JPEG) the script:
 
 1. Normalises the input (EXIF Orientation, mode conversion, resource limits).
-2. Runs V1 encryption at rounds 1, 5, 10, 20 with a canonical seed set
+2. Runs V1 encryption at rounds 2, 5, 10, 20 with a canonical seed set
    (``500_000`` and two secondary seeds so section 12.3.6 diverse-seed check
    has something to look at).
 3. Saves each variant as an 8-bit RGB/RGBA PNG next to a JSON metrics file.
@@ -44,7 +44,7 @@ CANONICAL_SEEDS: tuple[tuple[str, int], ...] = (
     ("secondary_a", 314_159),
     ("secondary_b", 987_654_321),
 )
-ROUNDS: tuple[int, ...] = (1, 5, 10, 20)
+ROUNDS: tuple[int, ...] = (2, 5, 10, 20)
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,11 +193,11 @@ def _render_scorecard(records: list[SourceRecord], destination: Path) -> None:
         "- **通过判定 (`✓`)**：____ / 80\n"
         "- **失败判定 (`✗` 或 `?`)**：____ / 80\n"
         "- **每张至少一轮通过**：____ / 20\n"
-        "- **每张 1/5/10/20 全通过**：____ / 20\n\n"
+        "- **每张 2/5/10/20 全通过**：____ / 20\n\n"
         "**发布决策规则**：\n\n"
         "1. 5/10/20 轮**每张至少 15/20 张通过** (即失败 ≤ 5 张) → 视觉隐藏能力\n"
         "   达标。\n"
-        "2. 1 轮未通过不影响发布 (1 轮定位为 sanity check)，但需在报告中\n"
+        "2. 2 轮未通过不影响发布 (2 轮定位为 sanity check)，但需在报告中\n"
         "   注明比例。\n"
         "3. 若某分享代码在 ≥3 张内容丰富图上都失败 → §12.3.6 系统性退化，\n"
         "   V1 不得发布 (需增派)。\n"

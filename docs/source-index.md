@@ -121,7 +121,7 @@
   `core/pipeline.py`（接受 `cancel: CancellationProbe` 与
   `progress: ProgressReporter`）、算法内部 `_checkpoint(cancel)`。
 - **改动指引**：**不要**在算法长循环里"每像素"调 probe，粒度太细；
-  reference_v1 是"每轮 3 次"（lift 前、permute 前、diffuse 前），
+  V1 定稿版本每轮**只调 1 次**（单 neighborhood_swap pass 前）；
   Cython v1.pyx 释放 GIL 期间不查取消，需要主循环外套 checkpoint。
 
 ### [`domain/__init__.py`](../reversible_mosaic/domain/__init__.py)
@@ -199,14 +199,15 @@ V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是
 - **导出**：
   - 类型：`PixelMode = Literal["RGB", "RGBA"]`、
     `PixelArray = npt.NDArray[np.uint8]`。
-  - 常量：`VALID_ROUNDS = frozenset({1, 5, 10, 20})`。
+  - 常量：`VALID_ROUNDS = frozenset({2, 5, 10, 20})`（2026-07-29 修订，
+    原 `{1, 5, 10, 20}`；1 轮位移 <3% 对真实照片视觉不到位，改为 2 起）。
   - 异常：`AlgorithmError(ValueError)`、`CancellationRequested(RuntimeError)`。
   - Protocol：`CancellationProbe`（`__call__() -> bool`）。
   - 数据类：`ImageSpec(width, height, mode)`（含 `channels` 属性）。
   - 函数：`validate_pixels(pixels, spec)` —— 检查 dtype/shape/C-contiguous。
 - **谁用它**：`reference_v1.py`、`registry.py`、`pipeline.py`、`normalize.py`。
-- **改动指引**：`VALID_ROUNDS` 是需求冻结项。类型 alias 供 IDE 与 mypy，
-  不影响运行时。
+- **改动指引**：`VALID_ROUNDS` 是需求冻结项，同步改需求档 §5 / FR-ENC-001 /
+  FR-DEC-005 / §12.2 / AC-005 与 `png_metadata._validate` 里的 rounds 检查。
 
 ### [`algorithm/registry.py`](../reversible_mosaic/core/algorithm/registry.py)
 - **作用**：版本 registry。模块加载时 `_register_builtin_versions()` 会自动
@@ -231,64 +232,75 @@ V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是
     实现的 encrypt/decrypt 签名必须完全等同。
 
 ### [`algorithm/reference_v1.py`](../reversible_mosaic/core/algorithm/reference_v1.py)
-- **作用**：V1 参考实现，"规范代表"。纯 Python 逐像素运算，慢但可读，
-  是固定向量 (fixed vectors) 的 ground truth。
-- **常量**：`_DOMAIN = b"reversible_mosaic/algorithm/v1\x00"`（域分离标签）、
-  `_MASK64`。
+- **作用**：V1 参考实现，"规范代表"。**2026-07-29 定稿**为**纯位置置换**
+  算法（去除了旧草案的 lift + diffuse 色彩变换）。纯 Python 嵌套循环慢
+  但可读，是固定向量 (fixed vectors) 的 ground truth。
+- **常量**：
+  - `_DOMAIN = b"reversible_mosaic/algorithm/v1\x00"`（域分离标签）
+  - `_MASK64 = (1 << 64) - 1`
+  - `_RADIUS_MIN = 8`、`_RADIUS_DIVISOR = 32`（半径公式参数）
+  - `_SWAP_DOMAIN = 0x22`（置换阶段密钥标签）
 - **内部函数**（下划线开头，不外部导出）：
   - `_splitmix64(value)` —— PRF，来自 splitmix64 家族。
-  - `_derive_words(spec, seed) -> (lift_key, permute_key, diffuse_fwd_key,
-    diffuse_rev_key)` —— SHA-256 派生 4 个 64-bit word。
-  - `_round_key(word, round_index, domain)` —— 每轮 4 个子密钥。
-  - `_mask3(key, index) -> (m0, m1, m2)` —— 每像素 3 通道掩码。
+  - `_derive_words(spec, seed) -> tuple[K0, K1, K2, K3]` —— SHA-256 派生
+    4 个 64-bit word。V1 仅用 `words[1]`；其他 3 个保留给未来 P1
+    色彩变换。
+  - `_round_key(word, round_index, domain)` —— 每轮子密钥。
   - `_checkpoint(cancel)` —— 取消 probe，抛 `CancellationRequested`。
-  - `_lift_forward / _lift_inverse` —— RGB 三角 lifting（`r += 3g + 5b + m0`；
-    Alpha 完全不参与）。
-  - `_permute_forward / _permute_inverse` —— Fisher–Yates，正向 `N-1→1`，
-    逆向 `1→N-1` 用相同 PRF 重生成索引。
-  - `_diffuse_forward / _diffuse_inverse` —— 反馈链扩散，`reverse=True`
-    走反向扫描；Alpha 只随空间移动、数值不改。
+  - `_radius_for(width, height) -> int` —— `max(8, min(W, H) // 32)`。
+  - `_neighborhood_swap_forward(pixels, key, radius)` —— 单轮正向扫描，
+    canonical direction (只当 `j > i` 时交换)。
+  - `_neighborhood_swap_inverse(pixels, key, radius)` —— 反向扫描；同一
+    PRF、同一 canonical 判定，因 swap 自逆而抵消正向。
   - `_validate(pixels, rounds) -> ImageSpec` —— 轮数/模式/形状校验。
 - **导出**：
   - `encrypt(pixels, seed, rounds, cancel=None) -> PixelArray`
   - `decrypt(pixels, seed, rounds, cancel=None) -> PixelArray`
-- **每轮顺序**：encrypt 是 `lift → permute → diffuse_fwd → diffuse_rev`；
-  decrypt 反转顺序 `diffuse_rev⁻¹ → diffuse_fwd⁻¹ → permute⁻¹ → lift⁻¹`，
-  轮次从 `rounds-1` 递减到 0。
+- **每轮结构**：encrypt 只做 `_neighborhood_swap_forward`；decrypt 反向
+  按 `range(rounds - 1, -1, -1)` 顺序做 `_neighborhood_swap_inverse`。
+  **没有 lift、没有 diffuse** —— 那些代码保留在
+  [`color_transform.py`](../reversible_mosaic/core/algorithm/color_transform.py)
+  供 P1 加强模式使用。
+- **关键性质**：调色板逐字节保留（只是位置改变，颜色值不动）；Alpha 随
+  像素整体移动，从不被单独修改；`decrypt(encrypt(I)) == I` 逐字节相等。
 - **谁用它**：`registry.py::_register_builtin_versions`、
+  `optimized_v1.py` 导入 `_derive_words / _round_key / _validate /
+  _checkpoint / _radius_for / _SWAP_DOMAIN`、
   `tests/unit/test_algorithm_v1.py`、`tests/property/test_algorithm_properties.py`、
   `tests/vectors/generate_v1_vectors.py`、`tests/vectors/test_v1_vectors.py`。
 - **改动指引**：**冻结前**只允许改字节输出如果同时更新固定向量文件。
-  冻结后（有 `docs/algorithm-v1.md` 标记）一个字节都不能动，改动 = 破坏
-  跨版本可逆性。
+  冻结后（`docs/algorithm-v1.md` 状态翻 frozen）一个字节都不能动，改动 =
+  破坏跨版本可逆性。加参数/半径公式变化必须新增 V2。
 
 ### [`algorithm/v1.pyx`](../reversible_mosaic/core/algorithm/v1.pyx)
-- **作用**：Cython 优化候选，把 `reference_v1.py` 的四个内循环
-  （`lift_forward/inverse`、`permute_forward/inverse`、
-  `diffuse_forward/inverse`）用 memoryview + `nogil` 重写。跟 Python 版
-  **每个字节一致**（同样的 splitmix64 常量、同样的通道更新顺序、同样的
-  `rm_mul_hi_64` 用于无偏乘法映射）。
-- **导出**（`cpdef`）：`lift_forward(pixels, key)`、`lift_inverse(pixels, key)`、
-  `permute_forward(pixels, key)`、`permute_inverse(pixels, key)`、
-  `diffuse_forward(pixels, key, reverse)`、`diffuse_inverse(pixels, key, reverse)`。
-- **状态**：Windows PC 无法编译（`__uint128_t` 是 GCC/clang 扩展）；WSL/Linux
-  可通过 `python setup.py build_ext --inplace` 得 `.so`；Android arm64 v6
-  通过 `p4a.setup_py = 1` 已打进 APK。
+- **作用**：Cython 优化候选，把 `reference_v1.py` 的
+  `_neighborhood_swap_forward / _neighborhood_swap_inverse` 用 memoryview +
+  `nogil` 重写。跟 Python 版**每个字节一致**（同样的 splitmix64 常量、
+  同样的扫描顺序、同样的 canonical direction 判定）。**2026-07-29 定稿**：
+  从 6 个 inner 函数（lift/permute/diffuse × forward/inverse）**精简到
+  2 个**（neighborhood_swap × forward/inverse）。
+- **导出**（`cpdef`）：
+  - `neighborhood_swap_forward(pixels, key, radius)` —— `pixels: uint8_t[:, :, ::1]`
+  - `neighborhood_swap_inverse(pixels, key, radius)`
+- **状态**：Windows PC 无法编译；Linux/WSL 可通过 `setup.py build_ext
+  --inplace` 或 `scripts/wsl_generate_visual_review.sh` 得 `.so`；
+  Android arm64 通过 `scripts/wsl_build_v1_cython.sh` 交叉编译进 APK。
 - **谁用它**：**阶段 1 已接入生产**：`registry.py` 通过 `optimized_v1.py`
   优先使用 Cython；PC/CI 无 Cython 时自动退回 `reference_v1`。
 - **改动指引**：
-  - `.pyx` 修改后必须 `python setup.py build_ext --inplace` 重新编译。
+  - `.pyx` 修改后必须重新编译（PC: `setup.py build_ext --inplace`；
+    Android: 重跑 `scripts/wsl_build_v1_cython.sh`）。
   - Cython 内 `with nogil:` 段不能碰 Python 对象，也不能调 `_checkpoint`
-    —— 取消检查只能在 Python 侧的主循环里做（每轮之间）。
-  - **必须保证与 `reference_v1.py` 逐字节一致**，`tests/unit/test_optimized_v1.py`
-    在 Linux/WSL 会强制这条；改一处两处都要同步改，改完重编 `.so` 或 `.pyd`。
+    —— 取消检查只能在 Python 侧主循环（每轮之间，`optimized_v1.py` 里做）。
+  - **必须保证与 `reference_v1.py` 逐字节一致**，
+    `tests/unit/test_optimized_v1.py` 在 Linux/WSL 强制这条。
 
 ### [`algorithm/optimized_v1.py`](../reversible_mosaic/core/algorithm/optimized_v1.py)
-- **作用**：阶段 1 引入。Cython 后端的 encrypt/decrypt 薄包装：从
-  `reference_v1` 导入 `_derive_words / _round_key / _validate / _checkpoint`
-  等编排逻辑，把六个内循环调用替换成 `v1.pyx` 里的 `lift_forward/inverse`、
-  `permute_forward/inverse`、`diffuse_forward/inverse`。**保证与
-  `reference_v1` 逐字节一致**。
+- **作用**：阶段 1 引入，2026-07-29 定稿版本。Cython 后端的
+  encrypt/decrypt 薄包装：从 `reference_v1` 导入
+  `_derive_words / _round_key / _validate / _checkpoint / _radius_for /
+  _SWAP_DOMAIN`，把 `_neighborhood_swap_forward/inverse` 的调用换成
+  `v1.pyx` 的 Cython 版本。**保证与 `reference_v1` 逐字节一致**。
 - **导出**：`encrypt(pixels, seed, rounds, cancel=None) -> PixelArray`、
   `decrypt(pixels, seed, rounds, cancel=None) -> PixelArray`、
   `CYTHON_MODULE_PATH: str`（Cython `.so`/`.pyd` 的路径，诊断用）。
@@ -299,6 +311,22 @@ V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是
 - **改动指引**：
   - **绝不**在这里做与 `reference_v1` 有差异的编排步骤 —— 一致性是唯一存在理由。
   - Alpha 通道行为完全由 Cython inner 保证；PY 侧不做额外处理。
+
+### [`algorithm/color_transform.py`](../reversible_mosaic/core/algorithm/color_transform.py)
+- **作用**：**2026-07-29 新增，P1 未来加强模式候选**。保留原 V1 草案的
+  lift + diffuse 色彩变换代码（三角 lifting + 反馈链扩散），**不接入
+  MVP 生产路径**。V1 已定稿为纯位置置换（不改变调色板）；此模块存在的
+  唯一意义是"如果 P1 上线可选加强模式，代码路径已备好"。
+- **导出**：
+  - `lift_forward(flat, key)` / `lift_inverse(flat, key)` —— RGB 三角
+    lifting（`r += 3g + 5b + m0`）；Alpha 完全不参与。
+  - `diffuse_forward(flat, key, reverse)` / `diffuse_inverse(flat, key,
+    reverse)` —— 反馈链扩散；`reverse=True` 走反向扫描。
+- **状态**：**不被任何生产代码 import**。仅代码保留，不参与测试。
+- **改动指引**：
+  - P1 加强模式若上线：新增 `optional_encrypt(pixels, seed, rounds, cancel,
+    color_transform=True)` 类型的入口；不要改动 V1 主流程。
+  - 若 P1 一直不落地，可以在 V2/V3 时代整体删掉。
 
 ### [`algorithm/quality.py`](../reversible_mosaic/core/algorithm/quality.py)
 - **作用**：阶段 1 引入。§12.3.3 三项视觉质量指标的实现，只依赖 numpy。
@@ -422,7 +450,7 @@ Intent、剪贴板）在阶段 2 才写。
 - **作用**：不依赖 Kivy 的表单/进度/结果 view model。屏在主线程持有实例，
   worker 通过 `TaskCoordinator` 回调更新。这样 view model 可以被
   pytest 直接测。
-- **常量**：`VALID_ROUNDS = (1, 5, 10, 20)`、`DEFAULT_ROUNDS = 5`。
+- **常量**：`VALID_ROUNDS = (2, 5, 10, 20)`、`DEFAULT_ROUNDS = 5`。
 - **导出**：
   - `TaskFormState(operation, input_path=None, share_code="", rounds=5, algorithm_version=None)`：
     - `parsed_share_code() -> str | None` （抛 `ShareCodeError`）。
@@ -565,11 +593,15 @@ Intent、剪贴板）在阶段 2 才写。
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
   `decrypt(encrypt(x)) == x`、确定性、Alpha 保守恒、5 项性质共 ~170 组样本。
-  1/5 轮走 80 例，10/20 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
+### [`tests/property/`](../tests/property/)
+- [`test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)：
+  Hypothesis 生成 `(w, h, mode, seed, rounds)`，断言
+  `decrypt(encrypt(x)) == x`、确定性、非平凡输出（≥2 pixel + ≥3 unique RGB）。
+  2/5 轮走 80 例，10/20 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
 
 ### [`tests/vectors/`](../tests/vectors/)
 - [`generate_v1_vectors.py`](../tests/vectors/generate_v1_vectors.py)：合成
-  固定图集，跑 1/5/10/20 轮，把 encrypt 输出与关键中间阶段摘要写入
+  固定图集，跑 2/5/10/20 轮，把 encrypt 输出的 hex/SHA-256 写入
   `algorithm_v1_draft.json`（冻结后改名 `vectors.json`；供跨平台比对）。
 - [`test_v1_vectors.py`](../tests/vectors/test_v1_vectors.py)：读取
   草案 JSON，断言 `reference_v1` **和** registry 当前后端（可能是 Cython）
@@ -590,23 +622,53 @@ Intent、剪贴板）在阶段 2 才写。
 
 #### [`scripts/generate_visual_review_set.py`](../scripts/generate_visual_review_set.py)
 - **作用**：阶段 1 引入。读 `artifacts/visual_review_sources/` 下的固定图集，
-  对每张跑 3 个种子 × 4 个轮数（1/5/10/20），走 `registry.get(1)` 加密（因此
-  会自动使用当前活跃后端 —— Cython 或 reference），产出结构化输出：
+  对每张跑 3 个种子 × 4 个轮数（**2/5/10/20**，2026-07-29 修订），走
+  `registry.get(1)` 加密（因此会自动使用当前活跃后端 —— Cython 或 reference），
+  产出结构化输出：
   - `artifacts/visual_review/<image_id>/source.png` —— 原图拷贝
   - `artifacts/visual_review/<image_id>/rounds_XX_seed_YY.png` —— 打码结果
     （含合法 `reversible_mosaic` tEXt 元数据 —— 结果可以直接被自动化恢复测试消费）
   - `artifacts/visual_review/metrics.json` —— 每张 × 每种子 × 每轮数的 5 项
     指标（像素变化率、水平/垂直/对角相邻相关性、边缘相似度）+ 按轮数/种子聚合的汇总
-  - `artifacts/visual_review/scorecard.md` —— 3 名检查者独立填写的评分表模板
+  - `artifacts/visual_review/scorecard.md` —— **单人 MVP 变体** 评分表模板
+    （§12.3 单人验收偏差，2026-07-29 记录）
 - **命令**：`python scripts/generate_visual_review_set.py --sources <input_dir>
   --output <output_dir>`。默认 `--sources artifacts/visual_review_sources
   --output artifacts/visual_review`。**每次执行会先 rmtree 输出目录**。
 - **决定性**：同源图 + 同 registry 后端 → 逐字节一致输出。
+- **PC 太慢**：纯 Python reference 实现在 12MP+ 图上 20 轮要几小时。用
+  `scripts/wsl_generate_visual_review.sh` 在 WSL Linux 里跑 Cython 版，5-10
+  分钟出所有 240 张 PNG。
 - **改动指引**：
   - 加新种子：改 `CANONICAL_SEEDS` 顶层常量。
-  - 加新轮数：改 `ROUNDS` 顶层常量 —— 但只能是 §7.3 `VALID_ROUNDS` = {1, 5, 10, 20}。
+  - 加新轮数：改 `ROUNDS` 顶层常量 —— 但只能是 §7.3 `VALID_ROUNDS` = {2, 5, 10, 20}。
   - `scorecard.md` 模板文字属于用户输出，允许全宽中文标点（file-level
-    `# ruff: noqa: RUF001`）。改文案时保留 3 列打分槽（3 位检查者独立填写）。
+    `# ruff: noqa: RUF001`）。单人 MVP 变体已按 §12.3 偏差改造；若恢复
+    3 人验收版本，参考 git history 里 stage2a 之前的模板。
+
+#### [`scripts/wsl_generate_visual_review.sh`](../scripts/wsl_generate_visual_review.sh)
+- **作用**：**在 WSL Ubuntu-24.04 里跑视觉验收生成脚本的完整封装**。因为
+  Windows PC 编不出 Cython .so，PC 上跑 `generate_visual_review_set.py` 只能
+  用 pure-Python reference 实现，对 12MP+ 图 20 轮要几小时。这个 shell 脚本
+  一键完成：
+  1. 确保 WSL 侧 dev venv 存在（`~/.venvs/reversible-mosaic-dev/`），装齐
+     numpy / pillow / cython / setuptools
+  2. rsync Windows 工作区到 `/home/hydrogen/src/ReversibleMosaic/`
+  3. 交叉编译 Linux x86_64 `.so`（`REVERSIBLE_MOSAIC_BUILD_CYTHON=1 python
+     setup.py build_ext --inplace`）
+  4. 打印 `backend =` 确认 Cython 加载成功
+  5. 调 `generate_visual_review_set.py` 传参
+  6. rsync 输出目录（`artifacts/visual_review/`）回 Windows
+- **命令**：`wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_generate_visual_review.sh`
+  可选传参（会转发给 generator）：`--sources <dir>`, `--output <dir>`。
+- **前置**：WSL Ubuntu-24.04 里安装 `python3-venv`（`sudo apt install
+  python3-venv`）。首次运行会 `pip install` numpy/pillow/cython，需要网络。
+- **一次性 vs 常用**：**常用**。视觉验收每次改 seed / rounds / R 都会重跑。
+- **改动指引**：
+  - venv 路径写死在脚本顶部 `VENV=...`，避免 `$VENV` 被展开成空字符串
+    在 Windows 工作区意外创建 Linux 符号链接（曾经踩过坑）。
+  - 若 Cython 编译失败，`build_ext` 会打印错误但脚本继续 —— 检查
+    "backend =" 输出：`reference` 就是编译失败退回；`cython` 是成功。
 
 ### 主构建
 
@@ -840,7 +902,8 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 - **P0**：本轮 MVP 支持的输入子集（8-bit RGB/RGBA PNG，8-bit RGB JPEG）。
 - **Share code**：用户手动记的分享代码。默认 `500000`；1–10 位 ASCII 十进
   制。空字符串 = 使用默认。
-- **Round**：算法轮数。允许 `{1, 5, 10, 20}`；默认 5。
+- **Round**：算法轮数。允许 `{2, 5, 10, 20}`；默认 5。（2026-07-29 修订，
+  原 `{1, 5, 10, 20}`）
 - **Stage**：pipeline 的可观察阶段 —— `normalize` / `transform` / `write`。
 - **State**：任务状态机 10 态；由 `domain/task_state.py` 管控迁移。
 - **Cancel token**：`threading.Event` 包装的协作取消标志；只在算法轮之间
