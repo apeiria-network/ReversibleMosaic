@@ -34,3 +34,43 @@ def test_rgb_jpeg_normalizes_to_rgb(tmp_path: Path) -> None:
     assert normalized.input_format == "JPEG"
     assert normalized.mode == "RGB"
     assert (normalized.width, normalized.height) == (3, 2)
+
+
+def test_mpo_container_treated_as_jpeg(tmp_path: Path) -> None:
+    """iPhone Portrait / dual-lens Android phones save primary photos as MPO
+    (JPEG + auxiliary depth frames). The primary frame is a compliant JPEG,
+    so the pipeline must accept ``opened.format == "MPO"`` alongside ``"JPEG"``.
+    """
+    path = tmp_path / "portrait.jpg"
+    primary = Image.new("RGB", (3, 2), (10, 20, 30))
+    aux = Image.new("RGB", (3, 2), (40, 50, 60))
+    primary.save(path, format="MPO", quality=95, append_images=[aux], save_all=True)
+    with Image.open(path) as opened:
+        assert opened.format == "MPO"
+    normalized = normalize_image(path)
+    assert normalized.mode == "RGB"
+    assert (normalized.width, normalized.height) == (3, 2)
+
+
+def test_bogus_exif_orientation_is_rejected(tmp_path: Path) -> None:
+    """Requirements §7.2.4 restrict Orientation to 1-8; anything else must
+    raise a controlled error rather than silently fall back to identity."""
+    import struct
+
+    import pytest
+
+    from reversible_mosaic.io.probe import ImageProbeError
+
+    base = tmp_path / "base.jpg"
+    Image.new("RGB", (8, 8), (200, 100, 50)).save(base, format="JPEG", quality=90)
+    base_bytes = base.read_bytes()
+    tiff = b"II*\x00" + struct.pack("<I", 8)
+    tiff += struct.pack("<H", 1)
+    tiff += struct.pack("<HHII", 0x0112, 3, 1, 42)
+    tiff += struct.pack("<I", 0)
+    exif_payload = b"Exif\x00\x00" + tiff
+    app1 = b"\xff\xe1" + struct.pack(">H", len(exif_payload) + 2) + exif_payload
+    injected = tmp_path / "bogus_exif.jpg"
+    injected.write_bytes(base_bytes[:2] + app1 + base_bytes[2:])
+    with pytest.raises(ImageProbeError, match="Orientation"):
+        normalize_image(injected)

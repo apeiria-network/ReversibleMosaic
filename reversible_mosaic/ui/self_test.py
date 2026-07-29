@@ -129,7 +129,7 @@ def _probe_reference_v1() -> str:
     # alpha stays 0 for every pixel — this is the transparent-RGB preservation case.
 
     lines: list[str] = []
-    for rounds in (1, 5, 20):
+    for rounds in (2, 5, 20):
         encrypted = encrypt(original, seed=500000, rounds=rounds)
         restored = decrypt(encrypted, seed=500000, rounds=rounds)
         if not np.array_equal(original, restored):
@@ -211,7 +211,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             root.add_widget(btn)
 
         perf_btn = Button(
-            text="性能扫描 (1920x1080 RGB, 1/10/20 轮, 5 次中位数)",
+            text="性能扫描 (1920x1080 RGB, 2/5/10/20 轮, 5 次中位数)",
             size_hint_y=None,
             height=dp(52),
         )
@@ -320,31 +320,21 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
     def _run_perf_scan(self) -> dict[str, Any]:
         import numpy as np
 
-        try:
-            import reversible_mosaic.core.algorithm.v1 as _v1_cython  # noqa: F401
-            cython_loaded = True
-        except ImportError:
-            cython_loaded = False
+        from reversible_mosaic.core.algorithm.registry import get, v1_implementation
 
-        # Stage 0 note: Cython inner loops exist but the encrypt/decrypt pipeline
-        # still runs pure-Python reference. Wiring Cython into the pipeline is
-        # Phase 1 work, so at 1920x1080 the reference is too slow (~18s/round).
-        # In Stage 0 we cap the perf scan at 256x256 either way to stay under
-        # a few minutes total wall-clock.
-        implementation = (
-            "reference-v1 (Cython 已加载, 但 Stage 0 使用参考实现)"
-            if cython_loaded
-            else "reference-v1 (Cython 未打包)"
-        )
-        width, height = 256, 256
-
-        from reversible_mosaic.core.algorithm.reference_v1 import decrypt, encrypt
+        backend = v1_implementation()
+        descriptor = get(1)
+        # AC-PERF target: 1920x1080 8-bit RGB, 1 round <= 3s, 10 rounds <= 18s,
+        # 20 rounds <= 35s. With Cython v1 wired into the pipeline we exercise
+        # the exact path the encode/decode screens will use.
+        implementation = f"registry V1 backend = {backend}"
+        width, height = 1920, 1080
 
         rng = np.random.default_rng(seed=12345)
         original = rng.integers(0, 256, size=(height, width, 3), dtype=np.uint8)
 
         rows: list[dict[str, Any]] = []
-        for rounds in (1, 10, 20):
+        for rounds in (2, 5, 10, 20):
             if self._perf_cancel.is_set():
                 break
             durations: list[float] = []
@@ -359,8 +349,8 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
                     0,
                 )
                 t0 = time.perf_counter()
-                encrypted = encrypt(original, seed=500000, rounds=rounds)
-                _ = decrypt(encrypted, seed=500000, rounds=rounds)
+                encrypted = descriptor.encrypt(original, 500000, rounds, None)
+                _ = descriptor.decrypt(encrypted, 500000, rounds, None)
                 elapsed = time.perf_counter() - t0
                 durations.append(elapsed)
             if not durations:
@@ -381,6 +371,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
 
         summary: dict[str, Any] = {
             "implementation": implementation,
+            "backend": backend,
             "resolution": f"{width}x{height}",
             "rows": rows,
             "cancelled": self._perf_cancel.is_set(),

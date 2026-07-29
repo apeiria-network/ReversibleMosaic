@@ -122,7 +122,7 @@ def _validate(metadata: MosaicMetadata) -> None:
         raise ValueError("schema 或应用标记不受支持。")
     if metadata.operation_type not in ("encrypted", "restored"):
         raise ValueError("操作类型无效。")
-    if metadata.algorithm_version <= 0 or metadata.rounds not in (1, 5, 10, 20):
+    if metadata.algorithm_version <= 0 or metadata.rounds not in (2, 5, 10, 20):
         raise ValueError("算法版本或轮数无效。")
     if metadata.pixel_mode not in ("RGB", "RGBA"):
         raise ValueError("像素模式无效。")

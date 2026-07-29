@@ -56,7 +56,7 @@ def test_encrypt_then_reset(tmp_path: Path) -> None:
             operation="encrypted",
             input_path=src,
             output_path=dst,
-            rounds=1,
+            rounds=2,
             share_code="500000",
         )
     )
@@ -84,7 +84,7 @@ def test_double_start_rejected(tmp_path: Path) -> None:
         operation="encrypted",
         input_path=src,
         output_path=dst,
-        rounds=1,
+        rounds=2,
         share_code=None,
     )
     coord.start(request)
@@ -104,7 +104,7 @@ def test_failure_delivers_exception(tmp_path: Path) -> None:
             operation="encrypted",
             input_path=missing,
             output_path=dst,
-            rounds=1,
+            rounds=2,
             share_code=None,
         )
     )

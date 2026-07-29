@@ -48,9 +48,28 @@ def latest() -> AlgorithmDescriptor:
     return _REGISTRY[max(_REGISTRY)]
 
 
-def _register_builtin_versions() -> None:
-    from reversible_mosaic.core.algorithm.reference_v1 import decrypt, encrypt
+_V1_IMPLEMENTATION: str = "reference"
 
+
+def v1_implementation() -> str:
+    """Return which V1 backend is currently registered: ``"cython"`` or ``"reference"``."""
+    return _V1_IMPLEMENTATION
+
+
+def _resolve_v1_transforms() -> tuple[Transform, Transform, str]:
+    from reversible_mosaic.core.algorithm import reference_v1
+
+    try:
+        from reversible_mosaic.core.algorithm import optimized_v1
+    except ImportError:
+        return reference_v1.encrypt, reference_v1.decrypt, "reference"
+    return optimized_v1.encrypt, optimized_v1.decrypt, "cython"
+
+
+def _register_builtin_versions() -> None:
+    global _V1_IMPLEMENTATION
+    encrypt, decrypt, implementation = _resolve_v1_transforms()
+    _V1_IMPLEMENTATION = implementation
     register(
         AlgorithmDescriptor(
             version=1,
