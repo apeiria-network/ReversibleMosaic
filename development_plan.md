@@ -260,3 +260,41 @@
 3. **V1 冻结签字**：视觉阈值 + AC-PERF 数据齐备后，把
    `algorithm_v1_draft.json` 改名 `vectors.json`，`docs/algorithm-v1.md`
    翻 `frozen` 状态，附录列冻结日期和阈值表。
+
+### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶�� 1 并行）
+
+**已完成（自动）**：
+1. **四个真实屏**：`EncodeScreen` / `DecodeScreen` / `ProgressScreen` /
+   `ResultScreen` 全部落到
+   [reversible_mosaic/ui/screens.py](reversible_mosaic/ui/screens.py)，
+   programmatic UI（跟 `self_test.py` 一致），无 KV 依赖。
+2. **输入预览**：新增
+   [reversible_mosaic/ui/input_hint.py](reversible_mosaic/ui/input_hint.py) —
+   PNG 走 `io.probe.scan_png` 安全扫描 + 元数据解析；JPEG 走 Pillow lazy
+   header 读；同时导出 `format_file_size` 与 `InputHint.has_encrypted_metadata`
+   / `suggested_rounds` / `suggested_algorithm_version` 给 DecodeScreen
+   做元数据自动带入。
+3. **文件选择器**：
+   [reversible_mosaic/ui/file_picker.py](reversible_mosaic/ui/file_picker.py) —
+   Kivy `FileChooserListView` + `Popup`；PC/Android 双端可用。Android
+   侧 Photo Picker (pyjnius) 走阶段 2b。
+4. **App 状态 + 协调器整合**：
+   [reversible_mosaic/app.py](reversible_mosaic/app.py) 拥有
+   `encrypted_form_state` / `restored_form_state` / `last_result` /
+   `last_operation`，通过 `Clock.schedule_once` 把 worker-thread 结果桥回
+   主线程；输出落 `{app.user_data_dir}/outputs/RM_ENC_yyyyMMdd_HHmmss_Rn.png`
+   或 `_DEC_`。
+5. **单元测试**：`test_input_hint.py`（8 case）+ `test_view_models.py`
+   补充 `algorithm_version` 字段。冒烟：`ReversibleMosaicApp.run()` PC 端
+   3 秒自动退出，7 个屏全部注册成功、无异常。
+
+**验证情况**：pytest 141 passed / 21 skipped；mypy strict 31 files 全绿；
+ruff 9 errors 全部 baseline 遗留。
+
+**尚待用户参与**：
+- **【联合】PC 手动 UI 走查**：`python main.py` 启动后依次点击"打码" →
+  "选择图片" → 挑一张 PNG/JPEG → 调轮数/分享代码 → 开始 → 等结果 →
+  返回首页 → "恢复" 同流程；如遇布局、字体、卡顿或异常反馈给我。
+- **【联合】v8 真机 UI 走查**：PC 走通后我出 v8 APK，你在真机重跑一次
+  同流程（Android 侧使用 Kivy FileChooser 是过渡方案，Photo Picker /
+  MediaStore 走阶段 2b）。

@@ -57,3 +57,10 @@ def test_progress_snapshot_labels_known_stages() -> None:
     assert snapshot.fraction == pytest.approx(0.42)
     unknown = ProgressSnapshot.from_stage("mystery", None)
     assert unknown.label == "mystery"
+
+
+def test_algorithm_version_defaults_none_and_is_mutable() -> None:
+    form = TaskFormState(operation="restored", input_path=Path("in.png"))
+    assert form.algorithm_version is None
+    form.algorithm_version = 1
+    assert form.algorithm_version == 1

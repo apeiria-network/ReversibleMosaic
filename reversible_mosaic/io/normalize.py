@@ -42,6 +42,39 @@ class NormalizedImage:
         return int(self.pixels.shape[0])
 
 
+_EXIF_ORIENTATION_TAG = 0x0112
+_VALID_EXIF_ORIENTATIONS = frozenset(range(1, 9))
+
+
+def _validate_exif_orientation(image: Image.Image) -> None:
+    """Reject JPEGs whose EXIF Orientation is outside the 1-8 spec range.
+
+    Requirements §7.2.4 fixes the accepted range and §10.3 mandates a
+    controlled error for anomalous EXIF. Pillow's ``ImageOps.exif_transpose``
+    silently falls back to identity for unknown values, so we have to check
+    explicitly before invoking it.
+
+    An Orientation of ``0`` is not in the EXIF 2.32 spec but is a common
+    "no orientation info" convention emitted by several phone cameras and
+    editors. We treat it as identity (equivalent to ``1``) — it doesn't
+    enable any parser exploit, and rejecting it would kick out legitimate
+    real-world photos. Anything else outside 1-8 is a hard error.
+    """
+    try:
+        exif = image.getexif()
+    except Exception:
+        return
+    if _EXIF_ORIENTATION_TAG not in exif:
+        return
+    orientation = exif[_EXIF_ORIENTATION_TAG]
+    if orientation == 0:
+        return
+    if not isinstance(orientation, int) or orientation not in _VALID_EXIF_ORIENTATIONS:
+        raise ImageProbeError(
+            f"EXIF Orientation 取值不合规 ({orientation!r}), 必须为 1-8。"
+        )
+
+
 def _preflight_jpeg(source: Path) -> None:
     if source.stat().st_size > MAX_INPUT_BYTES:
         raise ImageProbeError("输入文件超过 50 MiB。")
@@ -94,7 +127,15 @@ def normalize_image(path: str | Path) -> NormalizedImage:
 
     try:
         with Image.open(source) as opened:
-            if opened.format != expected_format:
+            # MPO (Multi-Picture Object) is a JPEG-based container used by many
+            # phone cameras (iPhone Portrait mode, dual-lens Android) to bundle
+            # depth / stereo frames with the primary JPEG. The primary frame is
+            # a fully compliant JPEG, so we accept MPO wherever JPEG is allowed.
+            observed_format = opened.format
+            format_matches = observed_format == expected_format or (
+                expected_format == "JPEG" and observed_format == "MPO"
+            )
+            if not format_matches:
                 raise ImageProbeError("图片签名与解码格式不一致。")
             try:
                 validate_dimensions(opened.width, opened.height)
@@ -102,10 +143,11 @@ def normalize_image(path: str | Path) -> NormalizedImage:
                 raise ImageProbeError(str(exc)) from exc
             image = opened.copy()
             if image.format is None:
-                image.format = opened.format
+                image.format = observed_format
             if expected_format == "JPEG":
                 if image.mode not in ("RGB", "L"):
                     raise ImageProbeError("仅支持普通 RGB JPEG。")
+                _validate_exif_orientation(image)
                 image = ImageOps.exif_transpose(image)
                 if image.mode == "L":
                     raise ImageProbeError("灰度 JPEG 不属于 P0 支持范围。")

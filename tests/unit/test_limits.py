@@ -17,7 +17,7 @@ def test_documented_input_limit_is_binary_50_mib() -> None:
 
 @pytest.mark.parametrize(
     ("width", "height"),
-    [(1, 1), (8192, 128), (64, 1), (4000, 3000)],
+    [(1, 1), (8192, 128), (64, 1), (4000, 3000), (4096, 3072), (5000, 4000)],
 )
 def test_valid_dimensions(width: int, height: int) -> None:
     validate_dimensions(width, height)
@@ -25,7 +25,7 @@ def test_valid_dimensions(width: int, height: int) -> None:
 
 @pytest.mark.parametrize(
     ("width", "height"),
-    [(0, 1), (1, 0), (8193, 1), (65, 1), (4001, 3000)],
+    [(0, 1), (1, 0), (8193, 1), (65, 1), (5001, 4000), (5001, 4001)],
 )
 def test_invalid_dimensions(width: int, height: int) -> None:
     with pytest.raises(ResourceLimitError):

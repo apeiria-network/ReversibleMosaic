@@ -147,12 +147,29 @@ def _process_source(
 
 
 def _render_scorecard(records: list[SourceRecord], destination: Path) -> None:
+    """Emit a single-reviewer scorecard covering 20 images x 4 rounds = 80 rows.
+
+    MVP deviation (§12.3 revised 2026-07-29): 单人验收 + 自动指标双重校验。
+    Scorecard only lists the default share code (500000); multi-seed metrics
+    stay in ``metrics.json`` for the §12.3.6 diverse-seed check, which is a
+    numeric comparison, not a human judgement.
+    """
+    default_seed_label, default_seed_value = CANONICAL_SEEDS[0]
     header = (
-        "# V1 视觉验收记分表（3 名检查者独立填写）\n\n"
-        "> §12.3.4 / §12.3.5：每张图 1/5/10/20 轮各评一次；至少 2 人认定主要\n"
-        "> 人脸、文字或主体轮廓难以直接辨认方可通过。纯色、1×1、全透明等低\n"
-        "> 信息图片仅验收可逆性，不参与视觉隐藏能力判定。\n\n"
-        "评分标记：`✓` = 难以直接辨认，`✗` = 主要内容仍可辨认，`?` = 不确定。\n\n"
+        "# V1 视觉验收记分表 (单人 MVP 变体)\n\n"
+        "> **验收协议**：需求档 §12.3 修订 2026-07-29 单人偏差 —— 由本记分表\n"
+        "> 单一检查者 (通常为产品负责人) 独立打分 + `metrics.json` 三项自动指标\n"
+        "> 双重校验。原 §12.3.4-5 的 3 名检查者判定条款仅在公开发布或商业推出\n"
+        "> 前须重新组织时恢复。\n\n"
+        "**你要做什么**：对每张原图，看 4 张打码后的输出图，独立判断\n"
+        "**是否难以直接辨认主体 / 文字 / 人脸**。\n\n"
+        "**评分标记**：\n"
+        "- `✓` = 主要内容 (人脸、文字、场景主体) 已难以直接辨认 (通过)。\n"
+        "- `✗` = 主要内容仍可直接辨认 (失败；需在备注写清哪部分残留)。\n"
+        "- `?` = 不确定 / 内容边界感 (记为不通过，重跑此张)。\n\n"
+        f"**分享代码固定为 `{default_seed_value}` (default)**；\n"
+        "其他 seed 变体只影响 metrics.json 里的多 seed 差异指标。\n\n"
+        "---\n\n"
     )
     lines: list[str] = [header]
     for record in records:
@@ -160,14 +177,37 @@ def _render_scorecard(records: list[SourceRecord], destination: Path) -> None:
             f"## {record.identifier}  ({record.width}×{record.height} {record.mode})\n"
         )
         lines.append(f"- 原图 SHA-256: `{record.sha256}`\n")
-        lines.append("\n| 轮数 | 分享代码 | 检查者 1 | 检查者 2 | 检查者 3 | 备注 |\n")
-        lines.append("|---|---|---|---|---|---|\n")
-        for seed_label, seed_value in CANONICAL_SEEDS:
-            for rounds in ROUNDS:
-                lines.append(
-                    f"| {rounds:>2} | {seed_value} ({seed_label}) |  |  |  |  |\n"
-                )
+        lines.append(
+            f"- 打码结果目录: `{record.identifier}/rounds_XX_seed_{default_seed_label}.png`\n"
+        )
+        lines.append("\n| 轮数 | 打码文件 | 判定 | 备注 |\n")
+        lines.append("|---|---|:-:|---|\n")
+        for rounds in ROUNDS:
+            output_name = f"rounds_{rounds:02d}_seed_{default_seed_label}.png"
+            lines.append(f"| {rounds:>2} | `{output_name}` |  |  |\n")
         lines.append("\n")
+    lines.append(
+        "---\n\n"
+        "## 汇总\n\n"
+        "填完后统计一下：\n\n"
+        "- **通过判定 (`✓`)**：____ / 80\n"
+        "- **失败判定 (`✗` 或 `?`)**：____ / 80\n"
+        "- **每张至少一轮通过**：____ / 20\n"
+        "- **每张 1/5/10/20 全通过**：____ / 20\n\n"
+        "**发布决策规则**：\n\n"
+        "1. 5/10/20 轮**每张至少 15/20 张通过** (即失败 ≤ 5 张) → 视觉隐藏能力\n"
+        "   达标。\n"
+        "2. 1 轮未通过不影响发布 (1 轮定位为 sanity check)，但需在报告中\n"
+        "   注明比例。\n"
+        "3. 若某分享代码在 ≥3 张内容丰富图上都失败 → §12.3.6 系统性退化，\n"
+        "   V1 不得发布 (需增派)。\n"
+        "4. `metrics.json` 三项自动指标必须同时通过冻结阈值 (见\n"
+        "   `docs/algorithm-v1.md` 附录)。\n\n"
+        "**检查者签署**：\n\n"
+        "- 姓名 / 花名：____________\n"
+        "- 日期：____________\n"
+        "- 备注：____________\n"
+    )
     destination.write_text("".join(lines), encoding="utf-8")
 
 

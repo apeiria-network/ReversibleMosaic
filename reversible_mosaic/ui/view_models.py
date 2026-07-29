@@ -28,6 +28,7 @@ class TaskFormState:
     input_path: Path | None = None
     share_code: str = ""
     rounds: int = DEFAULT_ROUNDS
+    algorithm_version: int | None = None  # decode-only; encode always uses latest
 
     def parsed_share_code(self) -> str | None:
         """Return the normalized share code or raise ``ShareCodeError``."""

@@ -26,25 +26,38 @@
   的 `[project].version` 和 `buildozer.spec` 的 `version`。
 
 ### [`reversible_mosaic/app.py`](../reversible_mosaic/app.py)
-- **作用**：Kivy 应用外壳。当前为阶段 0 探针版本：纯 Kivy（无 kivymd）；
+- **作用**：Kivy 应用外壳；阶段 2a 起为生产版本。纯 Kivy（无 kivymd）；
   `LabelBase.register(name="Roboto", fn_regular="assets/fonts/wqy-microhei.ttc")`
-  在 import 阶段把默认字体替换成覆盖 Latin+CJK 的 wqy-microhei；用
-  `ScreenManager` 管理 `HomeScreen` / `TutorialScreen` / `PlaceholderScreen`
-  三个占位屏。
+  在 import 阶段把默认字体替换成覆盖 Latin+CJK 的 wqy-microhei。
+  `ScreenManager` 挂 7 个屏：
+  `home` / `tutorial` / `encode` / `decode` / `progress` / `result` / `self_test`。
 - **关键 export**：`ReversibleMosaicApp(App)`、`HomeScreen(Screen)`、
-  `TutorialScreen(Screen)`、`PlaceholderScreen(Screen)`。`_KV` 是内嵌的 KV
-  语言字符串，`Builder.load_string(_KV)` 在 `build()` 里加载。
-- **导入的外部包**：`kivy.app.App`、`kivy.core.text.LabelBase`、
-  `kivy.lang.Builder`、`kivy.properties.StringProperty`、
-  `kivy.uix.screenmanager.Screen`。
+  `TutorialScreen(Screen)`。Encode/Decode/Progress/Result 屏从
+  [ui/screens.py](../reversible_mosaic/ui/screens.py) 导入；SelfTestScreen 从
+  [ui/self_test.py](../reversible_mosaic/ui/self_test.py) 导入。`_KV` 内嵌
+  home/tutorial 的 KV markup。
+- **App 状态**（`ReversibleMosaicApp` 实例属性）：
+  - `encrypted_form_state: TaskFormState` / `restored_form_state: TaskFormState`
+    — encode/decode 两个屏各自独立的表单状态，跨屏返回时保留。
+  - `last_result: ResultSnapshot | None` / `last_operation: str | None`。
+  - `_coordinator: TaskCoordinator | None` — lazy 单例；`schedule_on_main`
+    绑定到 `Clock.schedule_once`，所有回调都桥回主线程。
+- **App 方法**：
+  - `open_encode()` / `open_decode()` — 首页按钮的目标。
+  - `launch_pipeline(operation, form)` — 构造 `TaskRequest`、切到 progress
+    屏、启动 coordinator；输出落 `{user_data_dir}/outputs/RM_{ENC,DEC}_yyyyMMdd_HHmmss_Rn.png`。
+  - `cancel_pipeline()` — 转发到 coordinator。
+  - `copy_share_code_to_clipboard(text)` — best-effort，走 `kivy.core.clipboard.Clipboard`。
+  - `_on_progress` / `_on_completed` / `_on_failed` / `_on_cancelled` —
+    coordinator 回调；这些已经在主线程上，可以直接摸 widget。
 - **改动指引**：
-  - 加新屏：在 `_KV` 里加 `<NewScreen>: name: "xxx"` block + 在
-    `ScreenManager` 末尾添子节点 + Python 侧写 `NewScreen(Screen)` 类。
+  - 加新屏：在 `_KV` 里加 `<NewScreen>: name: "xxx"` block（若走 KV）+
+    在 `ScreenManager` 加子节点 + Python 侧写 `NewScreen(Screen)` 类；
+    或复用 `ui/screens.py` 的 programmatic pattern，在那里加类然后 import + 注册。
   - 改字体：改 `_CJK_FONT_PATH` 和 `LabelBase.register` 的 name 参数。
-  - 阶段 1 会把这里替换成 `EncodeScreen` / `DecodeScreen` /
-    `ProgressScreen` / `ResultScreen`，并挂接 `TaskCoordinator`（参见
-    `core/task_coordinator.py`）。
   - **不要**在这里做像素处理 —— 屏只消费 view model，处理走 worker 线程。
+  - **不要**在 coordinator 回调外触碰 widget —— 所有更新都必须在
+    `Clock.schedule_once` 或 `on_pre_enter` 里，否则跨线程会崩。
 
 ---
 
@@ -411,18 +424,67 @@ Intent、剪贴板）在阶段 2 才写。
   pytest 直接测。
 - **常量**：`VALID_ROUNDS = (1, 5, 10, 20)`、`DEFAULT_ROUNDS = 5`。
 - **导出**：
-  - `TaskFormState(operation, input_path=None, share_code="", rounds=5)`：
+  - `TaskFormState(operation, input_path=None, share_code="", rounds=5, algorithm_version=None)`：
     - `parsed_share_code() -> str | None` （抛 `ShareCodeError`）。
     - `randomize_share_code() -> None`。
     - `can_start() -> bool`（输入路径 + 合法 rounds + 合法 share_code）。
+    - `algorithm_version` 只在 decode 用；encode 恒定用 `latest()`。
   - `ProgressSnapshot(stage, fraction, label)`：`from_stage(stage, fraction)`
     工厂方法把 pipeline stage 常量映射为中文标签（normalize→"规范化"，
     transform→"算法处理"，write→"写入 PNG"）。
   - `ResultSnapshot(output_path, algorithm_version, rounds, share_code_display)`：
     `from_pipeline(result)` 工厂。
-- **谁用它**：阶段 1 的编码/解码/进度/结果屏；测试 `tests/unit/test_view_models.py`。
+- **谁用它**：阶段 2a 的四个生产屏 [ui/screens.py](../reversible_mosaic/ui/screens.py)
+  与测试 `tests/unit/test_view_models.py`。
 - **改动指引**：不要在这里 import kivy 或 kivymd（会破坏 pytest 便捷跑测）。
   UI 只应该"读"这些 dataclass 的字段，不要把 Kivy widget 引用塞进来。
+
+### [`ui/input_hint.py`](../reversible_mosaic/ui/input_hint.py)
+- **作用**：阶段 2a 引入。用户选择输入图片后，屏调 `inspect_input(path)` 拿
+  预览信息（尺寸、模式、格式、文件大小、元数据）。**不做资源限制或 JPEG preflight**
+  ——那些留给 `io.normalize` 在真开始处理时抛错。
+- **导出**：
+  - `InputHint(path, format, width, height, mode, file_bytes, metadata, error)`
+    冻结数据类；`.is_ok` / `.has_encrypted_metadata` /
+    `.suggested_rounds` / `.suggested_algorithm_version` 便捷访问器。
+  - `inspect_input(path) -> InputHint`：PNG 走 `io.probe.scan_png` +
+    `png_metadata.parse_png_metadata`；JPEG 走 Pillow lazy header；其他
+    后缀显式拒绝（`InputHint.error` 中给出中文原因）。
+  - `format_file_size(bytes) -> str`：`"512 B"` / `"1.2 KB"` / `"2.34 MB"`。
+- **谁用它**：`ui/screens.py` 的 `_EncodeDecodeBase._on_pick` 与
+  `DecodeScreen._on_input_selected`（后者用元数据自动带入算法版本 + 轮数）；
+  `tests/unit/test_input_hint.py` 8 case 覆盖。
+- **改动指引**：新增支持格式时改 `inspect_input` 分支；预览失败不要抛异常，
+  一律通过 `InputHint.error` 上浮。
+
+### [`ui/file_picker.py`](../reversible_mosaic/ui/file_picker.py)
+- **作用**：阶段 2a 引入。Kivy `FileChooserListView` + `Popup` 的模态封装，
+  PC/Android 双端可用（Android 侧过渡；正式版走 Photo Picker via pyjnius，
+  阶段 2b）。
+- **导出**：`open_file_picker(on_selected: Callable[[Path], None]) -> Popup`。
+  用户按 "使用此文件" 时以选中路径回调；"取消" 或点空处不回调。
+- **改动指引**：切换到 Photo Picker 后，保留 `open_file_picker` 签名不变，
+  只换实现——`Screen._on_pick` 无需改动。
+
+### [`ui/screens.py`](../reversible_mosaic/ui/screens.py)
+- **作用**：阶段 2a 引入。四个生产屏：
+  - `EncodeScreen` / `DecodeScreen` — 共用 `_EncodeDecodeBase`：文件选择、
+    轮数 Spinner、分享代码 TextInput + 随机 6 位 / 清除、开始按钮 disable
+    直到 `TaskFormState.can_start()`。DecodeScreen 有算法版本 Spinner，
+    且选文件后自动从 PNG 元数据带入 version + rounds。
+  - `ProgressScreen` — 阶段标签、进度条（fraction 未知时 indeterminate）、
+    已耗时秒表（`Clock.schedule_interval` 每 0.1s tick）、取消按钮。
+  - `ResultScreen` — 输出图片预览 (`Kivy.Image`)、算法/轮数/输出路径摘要、
+    加密路径下额外显示分享代码 + "复制分享代码" 按钮、"再来一次" 返回首页。
+- **状态存放**：屏本身无长期状态；`app.encrypted_form_state` /
+  `app.restored_form_state` / `app.last_result` / `app.last_operation`
+  在 `ReversibleMosaicApp` 上，跨屏共享。
+- **主线程边界**：所有屏方法只在 Kivy 主线程执行；worker 线程结果通过
+  `TaskCoordinator.schedule_on_main = Clock.schedule_once` 转发。
+- **改动指引**：
+  - 加新表单字段：先在 `view_models.TaskFormState` 加字段 → 再在
+    `_EncodeDecodeBase._build_widget_tree` 挂 widget → `_sync_form` 里回写。
+  - 屏内不 import Kivy 之外的东西时可提到 `ui/view_models.py` 便于 pytest 直测。
 
 ### [`ui/__init__.py`](../reversible_mosaic/ui/__init__.py)
 - 仅 docstring `"""UI-layer helpers (view models + Kivy screens)."""`。
@@ -498,6 +560,7 @@ Intent、剪贴板）在阶段 2 才写。
 | [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
 | [`test_optimized_v1.py`](../tests/unit/test_optimized_v1.py) | `algorithm/optimized_v1.py` + `algorithm/v1.pyx` | reference vs Cython 逐字节比对；Windows 无 Cython 时整个模块 skip |
 | [`test_quality.py`](../tests/unit/test_quality.py) | `algorithm/quality.py` | §12.3.3 三项指标：恒等/全变/纯色/RGBA/scrambled 各场景 |
+| [`test_input_hint.py`](../tests/unit/test_input_hint.py) | `ui/input_hint.py` | PNG/JPEG/异常/元数据解析共 8 case |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
@@ -746,7 +809,9 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 
 | 想做什么 | 该开哪个文件 |
 |---------|---------------|
-| 加/改一屏 UI | `reversible_mosaic/app.py`（KV 字符串 + Screen 类） |
+| 加/改一屏 UI | 生产屏改 `reversible_mosaic/ui/screens.py`（programmatic UI）；home/tutorial 改 `reversible_mosaic/app.py` KV block |
+| 加/改 view model 字段 | `reversible_mosaic/ui/view_models.py`（**不要**在这里 import kivy） |
+| 加/改文件选择器 | `reversible_mosaic/ui/file_picker.py`（Android Photo Picker 阶段 2b 会替换实现） |
 | 改分享码规则 | `reversible_mosaic/domain/share_code.py` |
 | 加任务状态 | `reversible_mosaic/domain/task_state.py`（记得同步 test） |
 | 调整资源上限 | `reversible_mosaic/domain/limits.py`（同步 `docs/algorithm-v1.md`） |
@@ -757,7 +822,6 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 | 加 PNG 元数据字段 | `io/png_metadata.py`（保持向后兼容） |
 | 加拒绝理由 | `io/probe.py` 或 `io/normalize.py`（同步 `tests/adversarial/`） |
 | 加平台能力 | `android/gateways.py` Protocol + 两个实现（`desktop.py` + 未来的 Android 实现） |
-| 改 view model | `ui/view_models.py`（**不要**在这里 import kivy） |
 | 调整 Android 打包 | `buildozer.spec`（加依赖时一次一个） |
 | 改构建脚本 | `scripts/wsl_build_android.sh`（**保留 rsync incremental**） |
 | 加 p4a recipe / 换 recipe 版本 | 更新 `scripts/wsl_prefetch_p4a.sh` 的 RECIPES 数组 + 重跑一次 |
