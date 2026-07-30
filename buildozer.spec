@@ -1,3 +1,20 @@
+# =============================================================================
+# 打包入口必须是 scripts/wsl_build_android.sh，不要手工跑 `buildozer android debug`。
+#
+# 手工方式的陷阱：
+#   1. Buildozer 会在当前工作目录建 .buildozer/。如果 cwd 是 /mnt/d/...，
+#      整个构建落在 Windows 挂载盘上，WSL2 的 9P/DrvFs 会偶发把 p4a 起的
+#      subprocess 卡成僵尸（52 分钟 0% CPU 那种），实测已挂死一次。
+#   2. 会跳过 wsl_build_android.sh 里的 rsync 到 ~/src/ReversibleMosaic，
+#      也跳过 p4a 包缓存 hard-link 和 github.com → ghfast.top 的 git 镜像。
+#   3. 会跳过 wsl_build_v1_cython.sh 的交叉编译，得到一个没有 v1.so
+#      的 fallback-only 包。
+#
+# 正确姿势（PowerShell / Windows shell 里）：
+#   wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh
+# 产物在 ~/src/ReversibleMosaic/bin/ 下，手工 cp 回 D:\...\bin\ 并附 -vNN 后缀。
+# 详见 docs/source-index.md § 主构建。
+# =============================================================================
 [app]
 title = ReversibleMosaic
 package.name = reversiblemosaic
@@ -21,6 +38,12 @@ android.archs = arm64-v8a
 android.private_storage = True
 android.accept_sdk_license = True
 android.logcat_filters = *:S python:D SDL:D SDLActivity:D AndroidRuntime:E
+
+# Stage 2b: legacy save path on API 26-28 needs WRITE_EXTERNAL_STORAGE.
+# API 29+ (scoped storage) does NOT need this permission for MediaStore inserts
+# under the app's own RELATIVE_PATH, so cap it at maxSdkVersion=28. No network,
+# location, or camera permissions requested (FR-TASK-007, §11.3).
+android.permissions = (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=28)
 
 # Local recipe override for numpy 2.3.0 — adds a patch for the missing
 # <unordered_map> include that Android NDK r25b clang-14 + libc++ trips over.

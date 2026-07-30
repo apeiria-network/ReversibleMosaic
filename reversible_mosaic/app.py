@@ -5,10 +5,21 @@ off the UI thread. Screens read form state from ``app.encrypted_form_state``
 and ``app.restored_form_state``; the coordinator's callbacks bounce results
 back onto Kivy's main thread via ``Clock.schedule_once`` before touching any
 widget.
+
+Stage 2b adds platform gateways for the result page:
+
+- :class:`AndroidOutputGateway` (or :class:`DesktopOutputGateway` on PC)
+  publishes the finished cache PNG to the system gallery on user press.
+- :class:`AndroidClipboardGateway` (or :class:`DesktopClipboardGateway`) copies
+  the share code and flags the clip sensitive on Android 13+.
+- Result naming: ``<original_stem>_mosaic.png`` for encode,
+  ``<original_stem>_reversal_mosaic.png`` for decode, with ``_1/_2`` on
+  collision (both in the cache dir and MediaStore).
 """
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +45,7 @@ if _CJK_FONT_PATH.is_file():
 # Import after font registration so all labels use wqy-microhei.
 from reversible_mosaic.core.pipeline import PipelineResult  # noqa: E402
 from reversible_mosaic.core.task_coordinator import TaskCoordinator, TaskRequest  # noqa: E402
+from reversible_mosaic.domain.output_naming import compute_output_name  # noqa: E402
 from reversible_mosaic.domain.task_state import TaskState  # noqa: E402
 from reversible_mosaic.ui.screens import (  # noqa: E402
     DecodeScreen,
@@ -169,9 +181,22 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
         self.encrypted_form_state = TaskFormState(operation="encrypted")
         self.restored_form_state = TaskFormState(operation="restored")
         self._coordinator: TaskCoordinator | None = None
+        self._output_gateway: Any = None
+        self._clipboard_gateway: Any = None
 
     def build(self):  # type: ignore[no-untyped-def]
         return Builder.load_string(_KV)
+
+    def on_start(self) -> None:
+        """Kivy lifecycle hook — runs once the ScreenManager is live."""
+        gateway = self._output_gateway_instance()
+        cleanup = getattr(gateway, "cleanup_orphan_pending", None)
+        if callable(cleanup):
+            try:
+                cleanup()
+            except Exception:
+                # Startup housekeeping must never crash the app.
+                pass
 
     # -- navigation helpers --------------------------------------------------
 
@@ -180,6 +205,18 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
 
     def open_decode(self) -> None:
         self.root.current = "decode"
+
+    # -- gateways ------------------------------------------------------------
+
+    def _output_gateway_instance(self) -> Any:
+        if self._output_gateway is None:
+            self._output_gateway = _build_output_gateway(Path(self.user_data_dir))
+        return self._output_gateway
+
+    def _clipboard_gateway_instance(self) -> Any:
+        if self._clipboard_gateway is None:
+            self._clipboard_gateway = _build_clipboard_gateway()
+        return self._clipboard_gateway
 
     # -- task launch ---------------------------------------------------------
 
@@ -206,11 +243,16 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
             return
         output_dir = Path(self.user_data_dir) / "outputs"
         output_dir.mkdir(parents=True, exist_ok=True)
-        from time import strftime
 
-        prefix = "RM_ENC" if operation == "encrypted" else "RM_DEC"
-        suffix = f"_R{form.rounds}" if operation == "encrypted" else ""
-        output_path = output_dir / f"{prefix}_{strftime('%Y%m%d_%H%M%S')}{suffix}.png"
+        # Build cache filename from the ORIGINAL display name (Photo Picker /
+        # PC path.name), not the picker's random ``pick_<ts>.jpg`` cache stem.
+        # MediaStore save later reuses the same base name.
+        display_name = compute_output_name(
+            form.original_display_name,
+            operation=operation,
+            name_taken=lambda name: (output_dir / name).exists(),
+        )
+        output_path = output_dir / display_name
 
         request = TaskRequest(
             operation=operation,  # type: ignore[arg-type]
@@ -236,12 +278,16 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
             self._coordinator.cancel()
 
     def copy_share_code_to_clipboard(self, share_code_line: str) -> None:
-        """Best-effort clipboard copy — real sensitive-flagging comes later."""
-        try:
-            from kivy.core.clipboard import Clipboard
+        """Copy ``share_code_line`` via the platform clipboard gateway.
 
-            Clipboard.copy(share_code_line)
+        On Android 13+ the ``ClipDescription`` is flagged sensitive so the
+        system UI redacts it in the copy-preview toast (FR-ENC-007).
+        """
+        gateway = self._clipboard_gateway_instance()
+        try:
+            gateway.copy_sensitive(share_code_line)
         except Exception:
+            # Clipboard is decorative; never crash the flow.
             return
 
     # -- coordinator callbacks (already scheduled on the main thread) -------
@@ -251,7 +297,11 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
         self._get_progress_screen().apply_progress(snapshot)
 
     def _on_completed(self, result: PipelineResult) -> None:
-        snapshot = ResultSnapshot.from_pipeline(result)
+        snapshot = ResultSnapshot.from_pipeline(
+            result,
+            operation=self.last_operation or "encrypted",
+            display_name=result.output_path.name,
+        )
         self.last_result = snapshot
         self._get_progress_screen().stop_ticker()
         self._get_result_screen().apply_result(snapshot)
@@ -260,9 +310,12 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
             self._coordinator.reset()
 
     def _on_failed(self, exc: BaseException) -> None:
-        self._get_progress_screen().stop_ticker()
-        # Surface the error on the progress screen so the user can go back.
-        self._get_progress_screen().stage_label = f"失败: {exc}"
+        # Log to logcat too so genuine JNI / native crashes stay searchable.
+        print(f"[RM] pipeline failed: {type(exc).__name__}: {exc}")
+        screen = self._get_progress_screen()
+        screen.stop_ticker()
+        screen.stage_label = "处理失败"
+        screen.detail_label = str(exc) or exc.__class__.__name__
         if self._coordinator is not None:
             self._coordinator.reset()
 
@@ -272,6 +325,67 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
         if self._coordinator is not None:
             self._coordinator.reset()
 
+    # -- result page actions ------------------------------------------------
+
+    def save_current_result(self) -> None:
+        """Publish the cached PNG to the platform gallery, off the UI thread."""
+        snapshot = self.last_result
+        if snapshot is None or snapshot.is_saved:
+            return
+        gateway = self._output_gateway_instance()
+        source_path = snapshot.output_path
+        display_name = snapshot.display_name or source_path.name
+
+        def _work() -> None:
+            try:
+                handle = gateway.publish_png(source_path, display_name)
+                Clock.schedule_once(lambda _dt: self._on_saved(handle), 0)
+            except Exception as exc:
+                message = str(exc) or exc.__class__.__name__
+                Clock.schedule_once(lambda _dt: self._on_save_failed(message), 0)
+
+        threading.Thread(target=_work, name="rm-save", daemon=True).start()
+
+    def view_current_result(self) -> None:
+        snapshot = self.last_result
+        if snapshot is None or not snapshot.is_saved or snapshot.saved_handle is None:
+            return
+        gateway = self._output_gateway_instance()
+        try:
+            gateway.open_for_view(snapshot.saved_handle)
+        except Exception as exc:
+            message = str(exc) or exc.__class__.__name__
+            self._get_result_screen().show_action_error(f"查看失败: {message}")
+
+    def share_current_result(self) -> None:
+        snapshot = self.last_result
+        if snapshot is None or not snapshot.is_saved or snapshot.saved_handle is None:
+            return
+        gateway = self._output_gateway_instance()
+        # Never place a share code in the subject line (FR-ENC-006 / FR-SAVE-004).
+        subject = "ReversibleMosaic 输出"
+        try:
+            gateway.share(snapshot.saved_handle, subject)
+        except Exception as exc:
+            message = str(exc) or exc.__class__.__name__
+            self._get_result_screen().show_action_error(f"分享失败: {message}")
+
+    def _on_saved(self, handle: str) -> None:
+        snapshot = self.last_result
+        if snapshot is None:
+            return
+        snapshot.saved_handle = handle
+        snapshot.save_error = None
+        self._get_result_screen().refresh_from_app()
+
+    def _on_save_failed(self, message: str) -> None:
+        snapshot = self.last_result
+        if snapshot is None:
+            return
+        snapshot.saved_handle = None
+        snapshot.save_error = message
+        self._get_result_screen().refresh_from_app()
+
     # -- screen accessors ----------------------------------------------------
 
     def _get_progress_screen(self) -> ProgressScreen:
@@ -279,3 +393,55 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
 
     def _get_result_screen(self) -> ResultScreen:
         return self.root.get_screen("result")  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Gateway selection — Android when PyJNIus is present, desktop stubs otherwise.
+# ---------------------------------------------------------------------------
+
+
+def _build_output_gateway(user_data_dir: Path) -> Any:
+    """Return an :class:`OutputGateway` implementation for the current platform."""
+    try:
+        from reversible_mosaic.android.native import (
+            AndroidOutputGateway,
+            is_available,
+        )
+
+        if is_available():
+            return AndroidOutputGateway()
+    except Exception:
+        # Fall through to desktop stub — never let gateway construction crash
+        # the app.
+        pass
+    from reversible_mosaic.android.desktop import DesktopOutputGateway
+
+    return DesktopOutputGateway(user_data_dir / "gallery")
+
+
+def _build_clipboard_gateway() -> Any:
+    try:
+        from reversible_mosaic.android.native import (
+            AndroidClipboardGateway,
+            is_available,
+        )
+
+        if is_available():
+            return AndroidClipboardGateway()
+    except Exception:
+        pass
+    # PC fallback: try Kivy's Clipboard for developer convenience so we can
+    # still verify the copy flow on desktop.
+    return _DesktopKivyClipboardGateway()
+
+
+class _DesktopKivyClipboardGateway:
+    """PC developer aid — copies text via Kivy's clipboard backend."""
+
+    def copy_sensitive(self, text: str) -> None:
+        try:
+            from kivy.core.clipboard import Clipboard
+
+            Clipboard.copy(text)
+        except Exception:
+            return

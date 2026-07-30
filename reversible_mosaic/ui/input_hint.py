@@ -5,10 +5,10 @@ file. The returned :class:`InputHint` fuels the preview panel (dimensions,
 mode, file size) and, for decode, the auto-populated algorithm version and
 rounds from any embedded ``reversible_mosaic`` metadata block.
 
-Preview does NOT enforce the resource limits or JPEG preflight from
-:mod:`reversible_mosaic.io.normalize`; those run when the pipeline actually
-starts, so an invalid input surfaces there with the full Chinese-language
-error path.
+Dimension limits from :mod:`reversible_mosaic.domain.limits` ARE enforced
+here so oversized images are rejected at pick time (Start button disabled,
+error surfaced in the preview label). Other preflight checks (JPEG marker
+walk, PNG chunk scan resource caps) still run only when the pipeline starts.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from reversible_mosaic.domain.limits import ResourceLimitError, validate_dimensions
 from reversible_mosaic.io.png_metadata import MetadataResult, MetadataStatus, parse_png_metadata
 from reversible_mosaic.io.probe import ImageProbeError, scan_png
 
@@ -110,6 +111,10 @@ def inspect_input(path: str | Path) -> InputHint:
             probe = scan_png(resolved)
         except ImageProbeError as exc:
             return _error_hint(resolved, "PNG", size, str(exc))
+        try:
+            validate_dimensions(probe.width, probe.height)
+        except ResourceLimitError as exc:
+            return _error_hint(resolved, "PNG", size, str(exc))
         metadata = parse_png_metadata(
             list(probe.chunks),
             actual_mode=probe.mode,
@@ -132,6 +137,10 @@ def inspect_input(path: str | Path) -> InputHint:
                 width, height = image.size
         except Exception as exc:
             return _error_hint(resolved, "JPEG", size, f"JPEG 读取失败: {exc}")
+        try:
+            validate_dimensions(width, height)
+        except ResourceLimitError as exc:
+            return _error_hint(resolved, "JPEG", size, str(exc))
         return InputHint(
             path=resolved,
             format="JPEG",

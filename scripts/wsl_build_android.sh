@@ -3,10 +3,15 @@
 set -euo pipefail
 
 MY_PID=$$
-# Kill leftover buildozer/p4a processes but never this shell.
+# Kill leftover buildozer/p4a processes but never this shell or our caller.
+# NOTE: match the actual executables/module names, NOT the bare word
+# "buildozer" — otherwise any parent shell whose command line mentions the
+# word (e.g., log file paths like /tmp/buildozer_v16.log) gets kill -9'd
+# too, taking this script down with it (exit 9). Learned the hard way
+# during the v15→v16 build cycle.
 if command -v pgrep >/dev/null 2>&1; then
-    for pid in $(pgrep -f "buildozer|python-for-android" || true); do
-        [ "$pid" != "$MY_PID" ] && kill -9 "$pid" 2>/dev/null || true
+    for pid in $(pgrep -f 'bin/buildozer|pythonforandroid\.toolchain|python-for-android' || true); do
+        [ "$pid" != "$MY_PID" ] && [ "$pid" != "$PPID" ] && kill -9 "$pid" 2>/dev/null || true
     done
 fi
 

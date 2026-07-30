@@ -5,8 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 MAX_INPUT_BYTES = 50 * 1024 * 1024
-MAX_EDGE = 8192
-MAX_PIXELS = 20_000_000
+# Bumped in v15 (2026-07-30) after v14's 30M cap still rejected mid-range
+# 48-50MP direct outputs (8000x6000 = 48M, 8160x6120 ~= 50M). 4GB-only Android
+# devices are essentially retired for the MVP target audience, so budgeting
+# against 6-8GB mid-range is the new baseline. 50M pixels x 4 bytes x 3
+# full-size buffers ~= 600MB + 64 MiB fixed overhead ~= 664 MiB peak -- fits
+# in a 6-8GB device's native memory budget (Android system + Kivy + PIL
+# together leave ~1-1.5GB usable). MAX_EDGE=12288 stays because 50MP 4:3
+# direct output is only 8160 wide; only unrealistic >3:1 stitched 50MP
+# panoramas would hit the edge cap first, and those are rare.
+# Historic values: MAX_EDGE=8192 / MAX_PIXELS=20M (through v13);
+# MAX_EDGE=12288 / MAX_PIXELS=30M (v14).
+MAX_EDGE = 12288
+MAX_PIXELS = 50_000_000
 MAX_ASPECT_RATIO = 64
 MAX_SEGMENT_BYTES = 1024 * 1024
 MAX_PNG_TEXT_BYTES = 64 * 1024

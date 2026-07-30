@@ -29,6 +29,11 @@ class TaskFormState:
     share_code: str = ""
     rounds: int = DEFAULT_ROUNDS
     algorithm_version: int | None = None  # decode-only; encode always uses latest
+    original_display_name: str | None = None
+    """Original filename reported by the picker (Android's OpenableColumns
+    DISPLAY_NAME, or ``path.name`` on desktop). Used downstream to compute
+    output filenames like ``<stem>_mosaic.png``. ``None`` if the platform
+    refuses to disclose it — treat as anonymous input."""
 
     def parsed_share_code(self) -> str | None:
         """Return the normalized share code or raise ``ShareCodeError``."""
@@ -76,12 +81,33 @@ class ResultSnapshot:
     algorithm_version: int
     rounds: int
     share_code_display: str
+    operation: str = "encrypted"
+    """``"encrypted"`` or ``"restored"``; controls which suffix/UI copy to use."""
+    display_name: str = ""
+    """Suggested MediaStore DISPLAY_NAME, e.g. ``photo_mosaic.png``."""
+    saved_handle: str | None = None
+    """Platform save handle (Android: MediaStore ``content://`` URI). ``None``
+    means the result is still only in app-private cache."""
+    save_error: str | None = None
+    """Last save failure reason, if any. Cleared on successful re-save."""
 
     @classmethod
-    def from_pipeline(cls, result: PipelineResult) -> ResultSnapshot:
+    def from_pipeline(
+        cls,
+        result: PipelineResult,
+        *,
+        operation: str = "encrypted",
+        display_name: str = "",
+    ) -> ResultSnapshot:
         return cls(
             output_path=result.output_path,
             algorithm_version=result.algorithm_version,
             rounds=result.rounds,
             share_code_display=result.share_code.normalized,
+            operation=operation,
+            display_name=display_name or result.output_path.name,
         )
+
+    @property
+    def is_saved(self) -> bool:
+        return self.saved_handle is not None

@@ -41,10 +41,10 @@
 
 - `pyproject.toml`、`requirements*.lock`：PC/Android 依赖与工具版本。
 - `main.py`、`reversible_mosaic/app.py`、`reversible_mosaic/ui/*.kv`：应用入口、主题、首页、打码、恢复、教程、结果页。
-- `reversible_mosaic/domain/share_code.py`、`algorithm_registry.py`、`task_state.py`、`limits.py`：纯领域规则。
+- `reversible_mosaic/domain/share_code.py`、`algorithm_registry.py`、`task_state.py`、`limits.py`、`output_naming.py`：纯领域规则。
 - `reversible_mosaic/core/algorithm/reference_v1.py`、`v1.pyx`、`pipeline.py`：参考算法、优化实现和处理管线。
 - `reversible_mosaic/io/probe.py`、`normalize.py`、`png_metadata.py`、`png_writer.py`：安全探测、规范化、协议和编码复读。
-- `reversible_mosaic/android/picker.py`、`media_store.py`、`intents.py`、`clipboard.py`：Android 适配器。
+- `reversible_mosaic/android/gateways.py`、`desktop.py`、`native.py`：平台适配 protocol + PC/Android 双实现。
 - `tests/unit/`、`tests/property/`、`tests/vectors/`、`tests/adversarial/`、`tests/android/`：测试分层。
 - `docs/algorithm-v1.md`、`docs/architecture.md`、`docs/build-android.md`、`docs/test-plan.md`：冻结规范和交付文档。
 - `buildozer.spec`、`recipes/`、`.github/workflows/`：arm64 构建、自定义 Cython recipe 与 CI。
@@ -313,13 +313,67 @@ ruff 9 errors 全部 baseline 遗留。
   try 系统 Intent，异常自动 fallback 到 Kivy FileChooser）。
 - MediaStore 保存 + 系统分享 + 查看结果按钮仍待阶段 2b。
 
-### 阶段 2b – 待办
+### 阶段 2b – 完成情况（2026-07-30）
 
-1. **MediaStore 保存**：`RM_ENC_yyyyMMdd_HHmmss_R{n}.png` 落入系统相册
-   （FR-SAVE-001 / AC-012），当前仅写到 `{user_data_dir}/outputs/`。
-2. **系统分享**：Intent.ACTION_SEND 走已保存 MediaStore URI，授临时只读权限
-   （FR-SAVE-004）。
-3. **结果页三按钮**：查看 / 保存 / 分享（当前只有 "复制分享代码" + "再来一次"）。
-4. **敏感剪贴板**：Android 13+ `ClipDescription.EXTRA_IS_SENSITIVE` 标记
-   分享代码复制（FR-ENC-007）。
-5. **未保存二次确认**：结果页离开时提示（FR-SAVE-007）。
+**已完成（自动）**：
+
+1. **原名回传管道**：`ui/file_picker.py::SelectionCallback` 签名从
+   `Callable[[Path], None]` 扩到 `Callable[[Path, str | None], None]`；
+   Android 侧新增 `_query_display_name()` 查
+   `OpenableColumns.DISPLAY_NAME`，PC 侧回传 `path.name`。原名写入
+   `TaskFormState.original_display_name`（[ui/view_models.py](reversible_mosaic/ui/view_models.py)）。
+2. **输出命名器**：新增 [`reversible_mosaic/domain/output_naming.py`](reversible_mosaic/domain/output_naming.py)。
+   `compute_output_name("photo.jpg", operation="encrypted")` → `photo_mosaic.png`；
+   decrypt 走 `_reversal_mosaic`；`name_taken` 谓词回调 driver `_1/_2/...` 递增，
+   同一函数同时服务本地缓存冲突检测 + MediaStore 冲突检测。
+   `sanitize_stem` 先替换保留字符（`<>:"/\|?*`+ 控制字符）再 `Path.stem`，
+   避免 `../etc/passwd` 被 Path 分隔符吃掉；96 字节 UTF-8 安全截断。
+   fallback：`mosaic_yyyymmdd_hhmmss.png` / `reversal_mosaic_yyyymmdd_hhmmss.png`。
+   10 case 单测覆盖（[tests/unit/test_output_naming.py](tests/unit/test_output_naming.py)）。
+3. **Android native gateways（合并在同一个文件）**：新增
+   [`reversible_mosaic/android/native.py`](reversible_mosaic/android/native.py)，
+   跟 `desktop.py`（三个 desktop stub gateway）对称：
+   - `AndroidOutputGateway.publish_png(source, display_name)` →
+     `MediaStore.Images.Media` 插入 `Pictures/ReversibleMosaic/`，API 29+
+     用 `IS_PENDING=1` 事务 + SHA-256 复读校验 + `IS_PENDING=0` 提交；
+     API 26-28 走 insert-write-verify-scanner；任何失败 `resolver.delete`
+     pending 行（FR-SAVE-006 半文件保护）。API 29+ 保存前查询 MediaStore
+     增量 `_1/_2` 避重名。
+   - `AndroidOutputGateway.open_for_view(handle)` / `share(handle, subject)`
+     → `Intent.ACTION_VIEW/SEND` + `FLAG_GRANT_READ_URI_PERMISSION`。
+     Subject 只有 App 通用标识，**不含分享代码**（FR-ENC-006/FR-SAVE-004）。
+   - `AndroidOutputGateway.cleanup_orphan_pending()` → App 启动
+     `on_start()` 时清 `IS_PENDING=1` 孤儿行（FR-TASK-006 / §9.2 item 3）。
+   - `AndroidClipboardGateway.copy_sensitive(text)` → `ClipboardManager` +
+     `ClipData.newPlainText` + Android 13+ (API 33) 设
+     `ClipDescription.EXTRA_IS_SENSITIVE=true`（FR-ENC-007）。
+4. **ResultScreen 状态机**（[ui/screens.py](reversible_mosaic/ui/screens.py)）：
+   两个状态：`unsaved` / `saved`（+ `save_error` 子状态）。主按钮行
+   `保存到相册 / 查看 / 分享`（未保存前后两者 disabled），副行
+   `复制分享代码 / 返回首页`。分享前必弹 `_show_share_reminder`
+   （FR-SAVE-005 "文件/原图 发送" 提示）；未保存返回时弹
+   `_show_unsaved_confirmation`（FR-SAVE-007）。
+5. **App gateway 编排**（[app.py](reversible_mosaic/app.py)）：`_build_output_gateway`
+   / `_build_clipboard_gateway` 工厂函数按 `is_available()` 选实现；
+   `save_current_result()` 走 worker 线程 + `Clock.schedule_once` 回主线程
+   刷 UI；`view_current_result()` / `share_current_result()` 转发到 gateway。
+6. **权限**（[buildozer.spec](buildozer.spec)）：
+   `android.permissions = (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=28)`
+   —— 仅 API 26-28 需要，API 29+ scoped storage 不需要。
+7. **测试 + lint**：
+   - `pytest -q`：**150 passed / 21 skipped**（新增 11 case × output_naming
+     + 5 case × desktop gateways + 4 case × view_models Stage 2b 状态）。
+   - `mypy --strict reversible_mosaic/`：32 files 全绿。
+   - `ruff check`：全部通过，无新 baseline 违规。
+
+**尚待用户参与（【联合】节点）**：
+- **Save/View/Share 真机验收路径**（保存 → 查看 → 分享 → 剪贴板 → 孤儿清理）：
+  1. 打码 → 保存 → 相册看到 → 查看/分享按钮解锁
+  2. 点"查看" → 系统图库全屏预览（多 viewer 时会有 resolver 选择器，这是
+     Android UX，不是我们的 bug）
+  3. 点"分享" → "文件/原图"提示 → 继续 → 系统 chooser 出现 → 发出去
+  4. Android 13+ 复制分享代码，剪贴板预览遮住值（未实际验证）
+  5. 强杀 App 重启后旧的 IS_PENDING 孤儿被 `cleanup_orphan_pending` 清掉 （未实际验证）
+- **恢复输入元数据的算法版本 / 轮数 UI 展示**：目前 DecodeScreen 已从
+  PNG 元数据自动带入，但没在 UI 上明确提示"这是从元数据带入的默认值,
+  可以覆盖"。可留到后续 UI 走查再看是否补一个 hint label。

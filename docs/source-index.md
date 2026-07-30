@@ -42,18 +42,38 @@
   - `last_result: ResultSnapshot | None` / `last_operation: str | None`。
   - `_coordinator: TaskCoordinator | None` — lazy 单例；`schedule_on_main`
     绑定到 `Clock.schedule_once`，所有回调都桥回主线程。
+  - `_output_gateway` / `_clipboard_gateway`（Stage 2b）— lazy 单例；
+    Android 走 `native.AndroidOutputGateway/AndroidClipboardGateway`，
+    PC 退回 `desktop.DesktopOutputGateway` + `_DesktopKivyClipboardGateway`
+    （Kivy Core Clipboard 兜底）。
 - **App 方法**：
+  - `on_start()`（Stage 2b）— Kivy 生命周期钩子，跑 `cleanup_orphan_pending()`
+    清 MediaStore 孤儿 pending 行。
   - `open_encode()` / `open_decode()` — 首页按钮的目标。
-  - `launch_pipeline(operation, form)` — 构造 `TaskRequest`、切到 progress
-    屏、启动 coordinator；输出落 `{user_data_dir}/outputs/RM_{ENC,DEC}_yyyyMMdd_HHmmss_Rn.png`。
+  - `launch_pipeline(operation, form)` — 用 `output_naming.compute_output_name`
+    计算 `<原名>_mosaic.png` / `_reversal_mosaic.png`（重名 `_1/_2`），
+    构造 `TaskRequest`、切到 progress 屏、启动 coordinator；输出落
+    `{user_data_dir}/outputs/`（app 私有缓存）。
   - `cancel_pipeline()` — 转发到 coordinator。
-  - `copy_share_code_to_clipboard(text)` — best-effort，走 `kivy.core.clipboard.Clipboard`。
+  - `copy_share_code_to_clipboard(text)`（Stage 2b）— 通过
+    `_clipboard_gateway_instance()` 调 `copy_sensitive(text)`。Android 13+
+    自动 flag EXTRA_IS_SENSITIVE。
+  - `save_current_result()`（Stage 2b）— worker 线程调
+    `output_gateway.publish_png(source, display_name)`，成功回调
+    `_on_saved(handle)` 更新 `last_result.saved_handle`；失败回调
+    `_on_save_failed(message)` 写 `last_result.save_error`；两者都调
+    `_get_result_screen().refresh_from_app()`。
+  - `view_current_result()` / `share_current_result()`（Stage 2b）— 转发到
+    `gateway.open_for_view(saved_handle)` / `gateway.share(handle, subject)`。
+    subject 恒定为 `"ReversibleMosaic 输出"`，**不包含**分享代码。
   - `_on_progress` / `_on_completed` / `_on_failed` / `_on_cancelled` —
     coordinator 回调；这些已经在主线程上，可以直接摸 widget。
 - **改动指引**：
   - 加新屏：在 `_KV` 里加 `<NewScreen>: name: "xxx"` block（若走 KV）+
     在 `ScreenManager` 加子节点 + Python 侧写 `NewScreen(Screen)` 类；
     或复用 `ui/screens.py` 的 programmatic pattern，在那里加类然后 import + 注册。
+  - 加新的平台 gateway：改 `_build_output_gateway` / `_build_clipboard_gateway`
+    工厂函数（Android 走 `native.py`，PC 走 `desktop.py`）。
   - 改字体：改 `_CJK_FONT_PATH` 和 `LabelBase.register` 的 name 参数。
   - **不要**在这里做像素处理 —— 屏只消费 view model，处理走 worker 线程。
   - **不要**在 coordinator 回调外触碰 widget —— 所有更新都必须在
@@ -92,9 +112,12 @@
   - 修改迁移：一定要同步更新 `test_task_state.py` 的断言矩阵。
 
 ### [`domain/limits.py`](../reversible_mosaic/domain/limits.py)
-- **作用**：P0 资源阈值（输入 50 MiB、边长 8192、总像素 12M、宽高比 64:1、
+- **作用**：P0 资源阈值（输入 50 MiB、边长 12288、总像素 50M、宽高比 64:1、
   JPEG segment 1 MiB、PNG 文本累计 64 KiB、内存 60% 上限）。给出无需分配的
-  预算估算。
+  预算估算。历史：初始 12M → 20M（2026-07-29，覆盖 12MP 相机原图）
+  → 30M / 边长 12288（2026-07-30 v13→v14，覆盖 24MP 直出与中度全景）
+  → **50M**（2026-07-30 v14→v15 三次修订，覆盖 48–50MP 主流旗舰主档；
+  4 GB Android 已淘汰，内存预算按 6–8 GB 中端下限）。
 - **常量**：`MAX_INPUT_BYTES`、`MAX_EDGE`、`MAX_PIXELS`、`MAX_ASPECT_RATIO`、
   `MAX_SEGMENT_BYTES`、`MAX_PNG_TEXT_BYTES`、`MAX_FULL_SIZE_BUFFERS = 3`、
   `MEMORY_FRACTION_LIMIT = 0.60`。
@@ -123,6 +146,31 @@
 - **改动指引**：**不要**在算法长循环里"每像素"调 probe，粒度太细；
   V1 定稿版本每轮**只调 1 次**（单 neighborhood_swap pass 前）；
   Cython v1.pyx 释放 GIL 期间不查取消，需要主循环外套 checkpoint。
+
+### [`domain/output_naming.py`](../reversible_mosaic/domain/output_naming.py)
+- **作用**：Stage 2b 引入。**平台无关的输出文件名计算器**。给定原图 display
+  name + 操作类型（encrypt/decrypt），返回 `<stem>_mosaic.png` 或
+  `<stem>_reversal_mosaic.png`，重名时通过外部 `name_taken(candidate)` 谓词
+  回调询问并递增 `_1/_2/...`。
+- **常量**：`_ENCRYPT_SUFFIX = "_mosaic"`、`_DECRYPT_SUFFIX = "_reversal_mosaic"`、
+  `_MAX_STEM_BYTES = 96`（UTF-8 字节安全截断）、
+  `_UNSAFE_RE = r'[<>:"/\\|?*\x00-\x1f]'`。
+- **导出**：
+  - `sanitize_stem(raw: str) -> str` —— 替换保留字符 → `Path.stem` 去扩展名
+    → 合并空白 → 截断到 96 字节。**先替换后 Path 解析**，否则 `/` 会被
+    `Path` 当分隔符吃掉，`../etc/passwd` 就变成空串。
+  - `compute_output_name(original_display_name, *, operation, name_taken=None,
+    max_attempts=999) -> str` —— 主入口。`name_taken` 是谓词回调，同时用于
+    filesystem check（`(cache_dir / name).exists()`）和 MediaStore check
+    （`_media_store_has_name(...)`）。`original_display_name` 是 None 或
+    空字符串时走时间戳 fallback：`mosaic_yyyymmdd_hhmmss.png` /
+    `reversal_mosaic_yyyymmdd_hhmmss.png`。
+- **谁用它**：`app.py::launch_pipeline` 计算 cache 文件名；`native.py`
+  MediaStore save 复用同一 base 名再自查重（跨 cache & gallery 两处）。
+- **改动指引**：
+  - 加新的操作类型（比如 P1 加强模式）→ 在 `_base_stem` 里加 `elif`。
+  - 修改保留字符集：更新 `_UNSAFE_RE` 并跑 `test_output_naming.py` 全套。
+  - 不要在这里 import Kivy 或 numpy —— 纯领域逻辑，pytest 直测。
 
 ### [`domain/__init__.py`](../reversible_mosaic/domain/__init__.py)
 - 仅 docstring，无 import。
@@ -415,8 +463,9 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 
 ## 平台层（`reversible_mosaic/android/`）
 
-抽象接口 + PC 侧假实现。真正的 PyJNIus 实现（Photo Picker、SAF、MediaStore、
-Intent、剪贴板）在阶段 2 才写。
+抽象接口 + 两个实现：PC 侧 desktop stubs + Android 侧 PyJNIus 实现。**Stage 2b
+起 Android 端两个 gateway（MediaStore + Clipboard）合并在同一个 `native.py`
+里**，跟 `desktop.py`（三个 desktop stub gateway）对称。
 
 ### [`android/gateways.py`](../reversible_mosaic/android/gateways.py)
 - **作用**：三个 `Protocol`（结构类型）定义业务与平台的边界。
@@ -426,7 +475,8 @@ Intent、剪贴板）在阶段 2 才写。
   - `OutputGateway`：`publish_png(source, display_name) -> str` /
     `open_for_view(handle)` / `share(handle, subject)`。
   - `ClipboardGateway`：`copy_sensitive(text)` —— 分享码复制且尽量标"敏感"。
-- **谁用它**：阶段 1/2 的屏幕代码；测试用 fake 实现（PC 走 desktop.py）。
+- **谁用它**：`reversible_mosaic/app.py::_build_output_gateway` /
+  `_build_clipboard_gateway` 里的平台选择器；`ui/screens.py` 只依赖协议。
 - **改动指引**：改这些方法签名会同时影响 Android 与 desktop 两个实现，
   只在需要暴露新平台能力（如 URI 授权 API）时改。
 
@@ -439,6 +489,50 @@ Intent、剪贴板）在阶段 2 才写。
 - **改动指引**：PC 端跑冒烟测试或性能扫描时用。**不要**在这里加平台特定
   API（比如 Windows 剪贴板/dialog），那样会让"PC 假实现"退化成
   另一个平台层。
+
+### [`android/native.py`](../reversible_mosaic/android/native.py)
+- **作用**：Stage 2b 引入。**Android 端所有 gateway 的具体实现**，走 PyJNIus。
+  两个 gateway 合并在一个文件里是因为它们共用同一个平台边界（jnius autoclass、
+  Android SDK 类）和加载门（`is_available()` 检查 jnius 是否可 import），分开
+  维护会重复 JNI 帮手函数（`_autoclass` / `_python_activity` / `_api_level` /
+  `_string_array`）。
+- **顶层导出**：
+  - `is_available() -> bool` —— PyJNIus 可 import 才返回 True；`app.py` 用它
+    决定装 Android gateway 还是 desktop stub。
+  - `AndroidMediaStoreError(RuntimeError)` —— MediaStore 相关失败的公共基类。
+  - `AndroidOutputGateway` / `AndroidClipboardGateway`。
+- **`AndroidOutputGateway`**（实现 `OutputGateway` 协议）：
+  - `publish_png(source: Path, display_name: str) -> str` ——
+    1. `_unique_display_name` 在 API 29+ 查询 MediaStore 增量 `_1/_2` 避重名；
+    2. `insert()` 到 `Pictures/ReversibleMosaic`，API 29+ 加 `IS_PENDING=1`；
+    3. `openOutputStream` 流式拷贝源字节；
+    4. `_verify_media_store_bytes` 重新读一遍做 SHA-256 复读校验；
+    5. API 29+ `IS_PENDING=0`，API 26-28 广播 `ACTION_MEDIA_SCANNER_SCAN_FILE`；
+    6. 任何一步失败都 `_safe_delete` 掉 pending 行（FR-SAVE-006 半文件保护）。
+    返回 `content://media/external/images/media/<id>` URI 字符串。
+  - `open_for_view(handle: str)` —— `Intent.ACTION_VIEW`。
+  - `share(handle: str, subject: str)` —— `Intent.ACTION_SEND` +
+    `EXTRA_STREAM` + `FLAG_GRANT_READ_URI_PERMISSION`；`subject` 只填 App 通用
+    标识，**绝不放分享代码**（FR-ENC-006 / FR-SAVE-004）。
+  - `cleanup_orphan_pending() -> int` —— App 启动时清 `IS_PENDING=1` 的孤儿行
+    （FR-TASK-006 / §9.2 item 3）；只在 API 29+ 有 IS_PENDING 语义，API 26-28
+    返回 0。所有失败被吞掉不阻塞启动。
+- **`AndroidClipboardGateway`**（实现 `ClipboardGateway` 协议）：
+  - `copy_sensitive(text: str)` —— `ClipboardManager.setPrimaryClip` +
+    `ClipData.newPlainText`。API 33+ 在 `ClipDescription` 设
+    `EXTRA_IS_SENSITIVE=true`（FR-ENC-007），系统 UI 复制预览会遮掉值。
+    任何异常被吞掉，剪贴板是尽力而为的便利功能。
+- **改动指引**：
+  - 加新的 Android gateway（比如 InputGateway 的 Android 实现）→ 在**同一个**
+    `native.py` 里加类；`is_available()` 门只在文件顶层出现一次。
+  - **禁止**在这里做 numpy/pillow 操作 —— 平台层只负责 JNI 转发。
+  - JNI 类必须 lazy 解析（在方法内 import `jnius`），保持模块在 PC 上可导入。
+  - **PyJNIus 重载分辨陷阱**：`Intent.putExtra` / `ContentValues.put` 有大量
+    重载，Python 原生 `int` / `Uri` 会引发 `JavaMethodResolutionError`。凡是
+    涉及"多态入参"的调用一律用 `_cast(target_class, value)`（内部走
+    `jnius.cast`）明确目标签名。当前落地点：`ContentValues.put("is_pending",
+    Integer(0/1))`、`putExtra(EXTRA_STREAM, cast Parcelable uri)`、
+    `putExtra(EXTRA_SUBJECT, cast CharSequence String)`。
 
 ### [`android/__init__.py`](../reversible_mosaic/android/__init__.py)
 - 仅 docstring `"""Android platform adapters."""`。
@@ -453,16 +547,25 @@ Intent、剪贴板）在阶段 2 才写。
   pytest 直接测。
 - **常量**：`VALID_ROUNDS = (2, 5, 15, 30)`、`DEFAULT_ROUNDS = 5`。
 - **导出**：
-  - `TaskFormState(operation, input_path=None, share_code="", rounds=5, algorithm_version=None)`：
+  - `TaskFormState(operation, input_path=None, share_code="", rounds=5, algorithm_version=None, original_display_name=None)`：
     - `parsed_share_code() -> str | None` （抛 `ShareCodeError`）。
     - `randomize_share_code() -> None`。
     - `can_start() -> bool`（输入路径 + 合法 rounds + 合法 share_code）。
     - `algorithm_version` 只在 decode 用；encode 恒定用 `latest()`。
+    - `original_display_name`（Stage 2b）— Photo Picker 或 PC 侧回传的原图
+      文件名，用于生成 `<stem>_mosaic.png` 输出名。为 None 时走时间戳 fallback。
   - `ProgressSnapshot(stage, fraction, label)`：`from_stage(stage, fraction)`
     工厂方法把 pipeline stage 常量映射为中文标签（normalize→"规范化"，
     transform→"算法处理"，write→"写入 PNG"）。
-  - `ResultSnapshot(output_path, algorithm_version, rounds, share_code_display)`：
-    `from_pipeline(result)` 工厂。
+  - `ResultSnapshot(output_path, algorithm_version, rounds, share_code_display,
+    operation="encrypted", display_name="", saved_handle=None, save_error=None)`：
+    - `from_pipeline(result, *, operation, display_name)` 工厂。
+    - `operation`（"encrypted"/"restored"）决定 ResultScreen 是否显示分享码。
+    - `display_name` — MediaStore 保存时用的 DISPLAY_NAME。
+    - `saved_handle` — Android MediaStore URI 或 desktop 输出路径；None 表示
+      结果仍在 app 私有缓存里，尚未 publish 到相册。
+    - `save_error` — 上次保存失败的原因。
+    - `is_saved` property = `saved_handle is not None`。
 - **谁用它**：阶段 2a 的四个生产屏 [ui/screens.py](../reversible_mosaic/ui/screens.py)
   与测试 `tests/unit/test_view_models.py`。
 - **改动指引**：不要在这里 import kivy 或 kivymd（会破坏 pytest 便捷跑测）。
@@ -470,8 +573,12 @@ Intent、剪贴板）在阶段 2 才写。
 
 ### [`ui/input_hint.py`](../reversible_mosaic/ui/input_hint.py)
 - **作用**：阶段 2a 引入。用户选择输入图片后，屏调 `inspect_input(path)` 拿
-  预览信息（尺寸、模式、格式、文件大小、元数据）。**不做资源限制或 JPEG preflight**
-  ——那些留给 `io.normalize` 在真开始处理时抛错。
+  预览信息（尺寸、模式、格式、文件大小、元数据）。**尺寸限制在这一层就 enforce**
+  ——`validate_dimensions(MAX_EDGE=12288 / MAX_PIXELS=50M / MAX_ASPECT_RATIO=64)`
+  违反直接返回 `InputHint(is_ok=False, error=...)`，让 Start 按钮 disable。
+  JPEG marker walk 之类的深度 preflight 仍在 `io.normalize` 才跑。
+  历史：阶段 2b v11→v13 真机测试暴露 —— 之前把限制留给 pipeline 后期，
+  超尺图片会走进"规范化"进度屏，用户无从得知；现在提前挡在选图那一步。
 - **导出**：
   - `InputHint(path, format, width, height, mode, file_bytes, metadata, error)`
     冻结数据类；`.is_ok` / `.has_encrypted_metadata` /
@@ -487,24 +594,45 @@ Intent、剪贴板）在阶段 2 才写。
   一律通过 `InputHint.error` 上浮。
 
 ### [`ui/file_picker.py`](../reversible_mosaic/ui/file_picker.py)
-- **作用**：阶段 2a 引入。Kivy `FileChooserListView` + `Popup` 的模态封装，
-  PC/Android 双端可用（Android 侧过渡；正式版走 Photo Picker via pyjnius，
-  阶段 2b）。
-- **导出**：`open_file_picker(on_selected: Callable[[Path], None]) -> Popup`。
-  用户按 "使用此文件" 时以选中路径回调；"取消" 或点空处不回调。
-- **改动指引**：切换到 Photo Picker 后，保留 `open_file_picker` 签名不变，
-  只换实现——`Screen._on_pick` 无需改动。
+- **作用**：阶段 2a 引入，2b 完善为**双实现**。Android 侧走
+  `Intent.ACTION_GET_CONTENT`（Android 13+ 自动映射到系统 Photo Picker）；PC
+  侧用 Kivy `FileChooserListView` + `Popup` 兜底。异常时自动 fallback
+  Kivy chooser，日志落 `{user_data_dir}/picker_error.log`。
+- **类型别名**：`SelectionCallback = Callable[[Path, str | None], None]`。
+  第二参数是原图 display name —— Android 侧通过
+  `OpenableColumns.DISPLAY_NAME` 查 ContentResolver 拿到；PC 侧就是
+  `chosen_path.name`。为 None 时下游走时间戳 fallback 命名。
+- **导出**：`open_file_picker(on_selected: SelectionCallback) -> Any`。
+  用户按 "使用此文件" 时以 `(cached_path, display_name)` 回调；"取消" 或
+  点空处不回调。
+- **改动指引**：切换到新的 Android picker（比如 Photo Picker 官方 API v2）
+  时，保留 `SelectionCallback` 签名不变——`Screen._on_pick` 无需改动。
 
 ### [`ui/screens.py`](../reversible_mosaic/ui/screens.py)
-- **作用**：阶段 2a 引入。四个生产屏：
+- **作用**：阶段 2a 引入，2b 扩展 ResultScreen 到 save/view/share 流程。
+  四个生产屏：
   - `EncodeScreen` / `DecodeScreen` — 共用 `_EncodeDecodeBase`：文件选择、
     轮数 Spinner、分享代码 TextInput + 随机 6 位 / 清除、开始按钮 disable
     直到 `TaskFormState.can_start()`。DecodeScreen 有算法版本 Spinner，
-    且选文件后自动从 PNG 元数据带入 version + rounds。
+    且选文件后自动从 PNG 元数据带入 version + rounds。`_on_pick` 回调
+    接受 `(cached_path, display_name)` 二元组，写入
+    `form.original_display_name`（Stage 2b）。
   - `ProgressScreen` — 阶段标签、进度条（fraction 未知时 indeterminate）、
     已耗时秒表（`Clock.schedule_interval` 每 0.1s tick）、取消按钮。
-  - `ResultScreen` — 输出图片预览 (`Kivy.Image`)、算法/轮数/输出路径摘要、
-    加密路径下额外显示分享代码 + "复制分享代码" 按钮、"再来一次" 返回首页。
+    - **v13 修复**：`stage_label` / `detail_label` / `elapsed_label`
+      StringProperty 通过 `self.bind(...)` 响应式同步到 widget `.text`；
+      之前 `_on_failed` 只写 property 但 label 显示不变，看起来像卡死。
+    - 取消按钮在 `coordinator.state == IDLE`（pipeline 已完成 / 失败）
+      时降级为"返回首页"，避免失败后无出路。
+  - `ResultScreen`（**Stage 2b 状态机**）——
+    - **状态**：`unsaved` → `saved` / `save_error`。
+    - **按钮组**：主行 `保存到相册 / 查看 / 分享`（后两个未保存前 disabled）；
+      副行 `复制分享代码 / 返回首页`。
+    - `_on_save()` 调 `app.save_current_result()`（worker 线程走 gateway.publish_png）。
+    - `_on_view()` / `_on_share()` 调对应 app 方法；分享前必弹
+      `_show_share_reminder`（FR-SAVE-005 "文件/原图 发送" 提示）。
+    - `_on_back()` 未保存时弹 `_show_unsaved_confirmation`（FR-SAVE-007）。
+    - `refresh_from_app()` 供 app 在保存成功/失败后调用，刷新按钮 disable 状态。
 - **状态存放**：屏本身无长期状态；`app.encrypted_form_state` /
   `app.restored_form_state` / `app.last_result` / `app.last_operation`
   在 `ReversibleMosaicApp` 上，跨屏共享。
@@ -513,6 +641,8 @@ Intent、剪贴板）在阶段 2 才写。
 - **改动指引**：
   - 加新表单字段：先在 `view_models.TaskFormState` 加字段 → 再在
     `_EncodeDecodeBase._build_widget_tree` 挂 widget → `_sync_form` 里回写。
+  - 加 result 页新按钮：走 app 方法而不是直接摸 gateway，保持
+    "worker/gateway 逻辑在 app.py，UI 只发信号 + 展示" 的分层。
   - 屏内不 import Kivy 之外的东西时可提到 `ui/view_models.py` 便于 pytest 直测。
 
 ### [`ui/__init__.py`](../reversible_mosaic/ui/__init__.py)
@@ -585,11 +715,13 @@ Intent、剪贴板）在阶段 2 才写。
 | [`test_algorithm_v1.py`](../tests/unit/test_algorithm_v1.py) | `algorithm/reference_v1.py` | 边缘尺寸、Alpha 保真、非法输入 |
 | [`test_pipeline.py`](../tests/unit/test_pipeline.py) | `core/pipeline.py` | encrypt→decrypt 闭环、stage 顺序、cancel 传递 |
 | [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset |
-| [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射 |
+| [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射、Stage 2b 的 ResultSnapshot save 状态转换 |
 | [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
 | [`test_optimized_v1.py`](../tests/unit/test_optimized_v1.py) | `algorithm/optimized_v1.py` + `algorithm/v1.pyx` | reference vs Cython 逐字节比对；Windows 无 Cython 时整个模块 skip |
 | [`test_quality.py`](../tests/unit/test_quality.py) | `algorithm/quality.py` | §12.3.3 三项指标：恒等/全变/纯色/RGBA/scrambled 各场景 |
 | [`test_input_hint.py`](../tests/unit/test_input_hint.py) | `ui/input_hint.py` | PNG/JPEG/异常/元数据解析共 8 case |
+| [`test_output_naming.py`](../tests/unit/test_output_naming.py) | `domain/output_naming.py` | Stage 2b: `_mosaic/_reversal_mosaic` 后缀、`_1/_2` 递增、reserved 字符 sanitize、Windows 路径注入防护 |
+| [`test_desktop_gateways.py`](../tests/unit/test_desktop_gateways.py) | `android/desktop.py` | Stage 2b: DesktopOutputGateway 冲突计数、DesktopInputGateway import、DesktopClipboardGateway noop |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
@@ -672,6 +804,28 @@ Intent、剪贴板）在阶段 2 才写。
     "backend =" 输出：`reference` 就是编译失败退回；`cython` 是成功。
 
 ### 主构建
+
+> **⚠️ 打包必须走 [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)，
+> 不要手工在任意目录跑 `buildozer android debug`。**
+>
+> 手工方式的实测事故（2026-07-30，v15 打包）：直接 `cd /mnt/d/python/python_projects/ReversibleMosaic && buildozer android debug` 后 p4a 起的 `sh` 子进程变僵尸卡在网络阶段，主进程 0% CPU 挂死 52 分钟，`.buildozer/` build/dists/packages 三个子目录全空——**根本没进到编译**。
+>
+> 规范脚本做的事，手工方式全会漏掉：
+> 1. `rsync -a --delete --exclude .buildozer/` 把源码同步到 WSL 原生盘
+>    `/home/hydrogen/src/ReversibleMosaic/`，避开 /mnt/d 的 9P/DrvFs 挂死风险。
+> 2. 从 `~/.p4a-source-cache/` hard-link tarball 到 workspace 里 `packages/`，让 p4a 全程跳网。
+> 3. 通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 把 recipe 里 `github.com/*` clone
+>    重定向到 `ghfast.top` 镜像（sdl2_image/sdl2_mixer/sdl2_ttf submodule clone 用得上）。
+> 4. 先跑 [`scripts/wsl_build_v1_cython.sh`](../scripts/wsl_build_v1_cython.sh) 把 V1
+>    Cython 内循环交叉编译成 arm64 `.so` 塞回源码树。
+> 5. `tee` 日志到 `/home/hydrogen/src/reversible-mosaic-build.log`（不用 `| tail -20` 吞掉过程）。
+>
+> **正确调用**（PowerShell / Windows shell 里）：
+>
+>     wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh
+>
+> 产物在 **`~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk`**（WSL 原生盘），
+> 手工 `cp ~/src/ReversibleMosaic/bin/*.apk /mnt/d/python/python_projects/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-vNN.apk` 拷回 Windows 侧并附上版本号后缀，最后 `sha256sum` 记录哈希。
 
 #### [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
 Buildozer 打包主入口，**只在 WSL Ubuntu 里跑**（`wsl -d Ubuntu -- bash
@@ -808,6 +962,10 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
   - `android.archs = arm64-v8a`
   - `android.private_storage = True`
   - `android.logcat_filters = *:S python:D SDL:D SDLActivity:D AndroidRuntime:E`
+  - **`android.permissions = (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=28)`**
+    —— Stage 2b：MediaStore 保存在 API 26-28 需要 WRITE_EXTERNAL_STORAGE，
+    API 29+ scoped storage 不需要，因此 `maxSdkVersion=28` 精准限定。
+    **不申请**网络/位置/相机等权限（FR-TASK-007 / §11.3）。
   - **`p4a.setup_py = 1`** —— v6 打开；让 buildozer 传 `--use-setup-py`
     给 p4a，触发 `pip install --no-deps -e .` 进而调 `setup.py::cythonize()`
     把 `reversible_mosaic/core/algorithm/v1.pyx` 编成 arm64 `.so`
@@ -857,7 +1015,9 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 ## 计划与文档（`docs/`）
 
 - [`docs/algorithm-v1.md`](algorithm-v1.md)：V1 算法规范（**FROZEN 2026-07-30**，
-  rounds {2, 5, 15, 30}, R=max(8, min(W,H)//32)）。
+  rounds {2, 5, 15, 30}, R=max(8, min(W,H)//32)）。**附录 A：面向读者的算法讲解**
+  （A.1–A.12，2026-07-30 追加）给出直觉版说明 + ASCII 公式 + 可逆性直觉证明，
+  是"想读懂 V1 在做什么"的入口，不覆盖 §1–5 的严格规范。
 - [`docs/build-android.md`](build-android.md)：Android 构建说明（p4a
   recipe、NDK 布局、镜像用法）。
 - [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据；阶段 3 冻结
@@ -875,7 +1035,7 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 |---------|---------------|
 | 加/改一屏 UI | 生产屏改 `reversible_mosaic/ui/screens.py`（programmatic UI）；home/tutorial 改 `reversible_mosaic/app.py` KV block |
 | 加/改 view model 字段 | `reversible_mosaic/ui/view_models.py`（**不要**在这里 import kivy） |
-| 加/改文件选择器 | `reversible_mosaic/ui/file_picker.py`（Android Photo Picker 阶段 2b 会替换实现） |
+| 加/改文件选择器 | `reversible_mosaic/ui/file_picker.py`（Android 走 Intent.ACTION_GET_CONTENT + ContentResolver display name 查询；PC 走 Kivy chooser） |
 | 改分享码规则 | `reversible_mosaic/domain/share_code.py` |
 | 加任务状态 | `reversible_mosaic/domain/task_state.py`（记得同步 test） |
 | 调整资源上限 | `reversible_mosaic/domain/limits.py`（同步 `docs/algorithm-v1.md`） |
@@ -885,7 +1045,10 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 | 改进度回调粒度 | `domain/tasks.py::ProgressReporter` |
 | 加 PNG 元数据字段 | `io/png_metadata.py`（保持向后兼容） |
 | 加拒绝理由 | `io/probe.py` 或 `io/normalize.py`（同步 `tests/adversarial/`） |
-| 加平台能力 | `android/gateways.py` Protocol + 两个实现（`desktop.py` + 未来的 Android 实现） |
+| 加平台能力 | `android/gateways.py` Protocol + 两个实现（`desktop.py` + `native.py`）；同类 Android gateway 全部集中在 `native.py` |
+| 改 MediaStore 保存 / 分享 / 查看 | `reversible_mosaic/android/native.py::AndroidOutputGateway`（保留 `publish_png` / `open_for_view` / `share` 签名，`app.py` 无需改动） |
+| 加 result 页新按钮 | `ui/screens.py::ResultScreen._build_widget_tree` 挂 widget → `app.py` 加对应方法（保持 gateway 调用集中在 app 层） |
+| 改输出命名规则 | `domain/output_naming.py`（同步 `tests/unit/test_output_naming.py`）|
 | 调整 Android 打包 | `buildozer.spec`（加依赖时一次一个） |
 | 改构建脚本 | `scripts/wsl_build_android.sh`（**保留 rsync incremental**） |
 | 加 p4a recipe / 换 recipe 版本 | 更新 `scripts/wsl_prefetch_p4a.sh` 的 RECIPES 数组 + 重跑一次 |
