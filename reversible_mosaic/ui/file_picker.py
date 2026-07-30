@@ -44,7 +44,15 @@ except ImportError:
     _HAS_JNIUS = False
 
 
-SelectionCallback = Callable[[Path], None]
+SelectionCallback = Callable[[Path, str | None], None]
+"""Fires with (cached_local_path, original_display_name).
+
+``original_display_name`` is what the user's file manager / Photo Picker calls
+the file. On Android we query ``OpenableColumns.DISPLAY_NAME`` from the
+ContentResolver; on PC we pass ``path.name``. Used downstream to compute output
+filenames like ``<stem>_mosaic.png``. May be ``None`` if the platform refuses to
+disclose it (rare — treat as anonymous input and fall back to the cached name).
+"""
 
 _SUPPORTED_FILTERS = ("*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG")
 _ANDROID_PICKER_REQUEST_CODE = 8901
@@ -92,7 +100,7 @@ def _open_android_gallery(on_selected: SelectionCallback) -> None:
     from android import activity as android_activity  # type: ignore[import-not-found]
 
     Intent = autoclass("android.content.Intent")
-    String = autoclass("java.lang.String")  # noqa: N806 - Java class alias
+    String = autoclass("java.lang.String")
     PythonActivity = autoclass("org.kivy.android.PythonActivity")
     android_activity_java = PythonActivity.mActivity
     if android_activity_java is None:
@@ -118,7 +126,7 @@ def _open_android_gallery(on_selected: SelectionCallback) -> None:
         if uri is None:
             return
         try:
-            cached_path = _copy_uri_to_cache(uri, android_activity_java)
+            cached_path, display_name = _copy_uri_to_cache(uri, android_activity_java)
         except Exception as exc:
             print(f"[file_picker] failed to import URI: {exc}")
             import traceback
@@ -127,7 +135,7 @@ def _open_android_gallery(on_selected: SelectionCallback) -> None:
             return
         if cached_path is None:
             return
-        Clock.schedule_once(lambda _dt: on_selected(cached_path), 0)
+        Clock.schedule_once(lambda _dt: on_selected(cached_path, display_name), 0)
 
     android_activity.bind(on_activity_result=_on_activity_result)
 
@@ -137,11 +145,17 @@ def _open_android_gallery(on_selected: SelectionCallback) -> None:
     android_activity_java.startActivityForResult(intent, _ANDROID_PICKER_REQUEST_CODE)
 
 
-def _copy_uri_to_cache(uri: Any, android_activity_java: Any) -> Path | None:
-    """Copy the bytes behind a ``content://`` URI into the app-private cache."""
+def _copy_uri_to_cache(uri: Any, android_activity_java: Any) -> tuple[Path | None, str | None]:
+    """Copy the bytes behind a ``content://`` URI into the app-private cache.
+
+    Returns ``(cached_path, original_display_name)``. The display name is
+    queried from ``OpenableColumns.DISPLAY_NAME`` when available and is used
+    downstream to build output filenames; it may be ``None`` if the provider
+    doesn't expose it.
+    """
     app = App.get_running_app()
     if app is None:
-        return None
+        return None, None
     cache_dir = Path(app.user_data_dir) / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,6 +167,8 @@ def _copy_uri_to_cache(uri: Any, android_activity_java: Any) -> Path | None:
         ext = ".jpg"
     else:
         ext = ".bin"
+
+    display_name = _query_display_name(resolver, uri)
     dest = cache_dir / f"pick_{int(time.time() * 1000)}{ext}"
 
     istream = resolver.openInputStream(uri)
@@ -177,7 +193,40 @@ def _copy_uri_to_cache(uri: Any, android_activity_java: Any) -> Path | None:
                     )
     finally:
         istream.close()
-    return dest
+    return dest, display_name
+
+
+def _query_display_name(resolver: Any, uri: Any) -> str | None:
+    """Query ``OpenableColumns.DISPLAY_NAME`` for a ``content://`` URI.
+
+    Any exception (permission denied, provider crash, empty cursor) is
+    swallowed and the function returns ``None`` — display name is a nice-to-
+    have used only for output filename cosmetics.
+    """
+    if not _HAS_JNIUS:
+        return None
+    try:
+        OpenableColumns = autoclass("android.provider.OpenableColumns")
+        String = autoclass("java.lang.String")
+        projection = [String(OpenableColumns.DISPLAY_NAME)]
+        cursor = resolver.query(uri, projection, None, None, None)
+        if cursor is None:
+            return None
+        try:
+            if not cursor.moveToFirst():
+                return None
+            idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if idx < 0:
+                return None
+            value = cursor.getString(idx)
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+        finally:
+            cursor.close()
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +281,7 @@ def _open_kivy_filechooser(on_selected: SelectionCallback) -> Popup:
             return
         first = Path(chooser.selection[0])
         popup.dismiss()
-        on_selected(first)
+        on_selected(first, first.name)
 
     def _cancel(_button: Button) -> None:
         popup.dismiss()

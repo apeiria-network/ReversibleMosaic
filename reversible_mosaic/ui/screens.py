@@ -23,6 +23,7 @@ try:
     from kivy.uix.button import Button
     from kivy.uix.image import Image
     from kivy.uix.label import Label
+    from kivy.uix.popup import Popup
     from kivy.uix.progressbar import ProgressBar
     from kivy.uix.screenmanager import Screen
     from kivy.uix.spinner import Spinner
@@ -32,6 +33,7 @@ except ImportError as exc:  # pragma: no cover - matches app.py boundary
 
 from reversible_mosaic.core.algorithm.registry import supported_versions
 from reversible_mosaic.domain.share_code import ShareCodeError
+from reversible_mosaic.domain.task_state import TaskState
 from reversible_mosaic.ui.file_picker import open_file_picker
 from reversible_mosaic.ui.input_hint import InputHint, format_file_size, inspect_input
 from reversible_mosaic.ui.view_models import (
@@ -239,9 +241,10 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
         self._start_button.disabled = not can_start
 
     def _on_pick(self) -> None:
-        def _cb(chosen: Path) -> None:
+        def _cb(chosen: Path, display_name: str | None) -> None:
             form = self._current_form()
             form.input_path = chosen
+            form.original_display_name = display_name
             self._hint = inspect_input(chosen)
             self._preview_label.text = _hint_lines(self._hint)
             self._on_input_selected(self._hint)
@@ -379,6 +382,14 @@ class ProgressScreen(Screen):  # type: ignore[misc]
         cancel_btn.bind(on_release=lambda _btn: self._on_cancel())
         root.add_widget(cancel_btn)
 
+        # Reactive: any assignment to `self.stage_label` / `detail_label` /
+        # `elapsed_label` now updates the visible widget. Without this, code
+        # paths like ReversibleMosaicApp._on_failed silently updated the
+        # StringProperty but the label kept showing stale text.
+        self.bind(stage_label=lambda _self, val: setattr(self._stage, "text", val))
+        self.bind(detail_label=lambda _self, val: setattr(self._detail, "text", val))
+        self.bind(elapsed_label=lambda _self, val: setattr(self._elapsed, "text", val))
+
         self.add_widget(root)
 
     def start_ticker(self) -> None:
@@ -386,8 +397,6 @@ class ProgressScreen(Screen):  # type: ignore[misc]
         self.stage_label = "等待"
         self.detail_label = ""
         self._bar.value = 0
-        self._stage.text = self.stage_label
-        self._detail.text = self.detail_label
         if self._tick_event is None:
             self._tick_event = Clock.schedule_interval(self._tick, 0.1)
 
@@ -399,11 +408,9 @@ class ProgressScreen(Screen):  # type: ignore[misc]
     def _tick(self, _dt: float) -> None:
         elapsed = time.time() - self._start_time
         self.elapsed_label = f"已耗时 {elapsed:.1f}s"
-        self._elapsed.text = self.elapsed_label
 
     def apply_progress(self, snapshot: ProgressSnapshot) -> None:
         self.stage_label = snapshot.label
-        self._stage.text = self.stage_label
         if snapshot.fraction is None:
             self._bar.value = 0
             self._bar.max = 0  # indeterminate look
@@ -413,6 +420,14 @@ class ProgressScreen(Screen):  # type: ignore[misc]
 
     def _on_cancel(self) -> None:
         app = App.get_running_app()
+        # If the pipeline already finished (or failed) the coordinator is
+        # IDLE; there is nothing to cancel and the user just wants to leave
+        # the screen. Fall through to home so a failed run isn't a dead-end.
+        coordinator = getattr(app, "_coordinator", None)
+        if coordinator is None or coordinator.state == TaskState.IDLE:
+            if self.manager is not None:
+                self.manager.current = "home"
+            return
         app.cancel_pipeline()
 
     def on_pre_leave(self, *_args: Any) -> None:
@@ -420,13 +435,34 @@ class ProgressScreen(Screen):  # type: ignore[misc]
 
 
 class ResultScreen(Screen):  # type: ignore[misc]
-    """Screen shown after a successful encode or decode."""
+    """Screen shown after a successful encode or decode.
+
+    State machine:
+
+    * ``unsaved`` — pipeline just finished, output lives only in app-private
+      cache. The **Save** button is the only enabled destructive action.
+      **View** / **Share** are disabled because there is no gallery URI yet.
+      **返回首页** goes through :meth:`on_pre_leave` to prompt about data
+      loss (FR-SAVE-007).
+    * ``saved`` — MediaStore publish succeeded. **View** / **Share** unlock;
+      **Save** flips to "已保存"; leaving the screen no longer prompts.
+    * ``save_error`` — surfaced above the buttons; user can retry Save.
+
+    On the "share" press we first show a short "使用文件/原图 发送" reminder
+    (FR-SAVE-005), then hand the MediaStore URI to the platform gateway.
+    """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._image_widget: Image | None = None
         self._summary_label: Label
         self._share_code_label: Label
+        self._save_status_label: Label
+        self._save_button: Button
+        self._view_button: Button
+        self._share_button: Button
+        self._back_button: Button
+        self._current_snapshot: ResultSnapshot | None = None
         self._build_widget_tree()
 
     def _build_widget_tree(self) -> None:
@@ -449,45 +485,229 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._share_code_label = Label(
             text="",
             size_hint_y=None,
-            height=dp(48),
+            height=dp(40),
             font_size=dp(18),
             halign="center",
             valign="middle",
-            text_size=(None, dp(48)),
+            text_size=(None, dp(40)),
         )
         root.add_widget(self._share_code_label)
 
-        actions = BoxLayout(
-            orientation="horizontal", size_hint_y=None, height=dp(56), spacing=dp(12)
+        self._save_status_label = Label(
+            text="",
+            size_hint_y=None,
+            height=dp(28),
+            font_size=dp(14),
+            halign="center",
+            valign="middle",
+            text_size=(None, dp(28)),
         )
-        actions.add_widget(_mini_button("复制分享代码", lambda: self._on_copy_share_code()))
-        actions.add_widget(_mini_button("再来一次", lambda: self._go_home()))
-        root.add_widget(actions)
+        root.add_widget(self._save_status_label)
+
+        primary_actions = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
+        )
+        self._save_button = Button(text="保存到相册")
+        self._save_button.bind(on_release=lambda _btn: self._on_save())
+        self._view_button = Button(text="查看", disabled=True)
+        self._view_button.bind(on_release=lambda _btn: self._on_view())
+        self._share_button = Button(text="分享", disabled=True)
+        self._share_button.bind(on_release=lambda _btn: self._on_share())
+        primary_actions.add_widget(self._save_button)
+        primary_actions.add_widget(self._view_button)
+        primary_actions.add_widget(self._share_button)
+        root.add_widget(primary_actions)
+
+        secondary_actions = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
+        )
+        copy_btn = Button(text="复制分享代码")
+        copy_btn.bind(on_release=lambda _btn: self._on_copy_share_code())
+        self._back_button = Button(text="返回首页")
+        self._back_button.bind(on_release=lambda _btn: self._on_back())
+        secondary_actions.add_widget(copy_btn)
+        secondary_actions.add_widget(self._back_button)
+        root.add_widget(secondary_actions)
 
         self.add_widget(root)
 
     def apply_result(self, snapshot: ResultSnapshot) -> None:
         assert self._image_widget is not None
+        self._current_snapshot = snapshot
         self._image_widget.source = str(snapshot.output_path)
         self._image_widget.reload()
-        operation_ch = "打码" if snapshot.share_code_display else "恢复"
         self._summary_label.text = (
-            f"输出: {snapshot.output_path}\n"
+            f"输出文件名: {snapshot.display_name or snapshot.output_path.name}\n"
+            f"缓存路径: {snapshot.output_path}\n"
             f"算法: V{snapshot.algorithm_version}  轮数: {snapshot.rounds}"
         )
         # Only encode outputs surface the share code — decode reuses the same
         # value entered on the form so the user already has it.
-        app = App.get_running_app()
-        if app is not None and getattr(app, "last_operation", None) == "encrypted":
+        if snapshot.operation == "encrypted":
             self._share_code_label.text = f"分享代码: {snapshot.share_code_display}"
         else:
             self._share_code_label.text = ""
-        _ = operation_ch  # placeholder to avoid unused warning; refactor once i18n lands
+        self._refresh_save_state()
+
+    def refresh_from_app(self) -> None:
+        """Re-read ``app.last_result`` and update button states.
+
+        Called by the app after a save succeeds / fails so the screen doesn't
+        need to hold its own copy of the snapshot in sync.
+        """
+        app = App.get_running_app()
+        if app is None:
+            return
+        snapshot = getattr(app, "last_result", None)
+        if snapshot is None:
+            return
+        self._current_snapshot = snapshot
+        self._refresh_save_state()
+
+    def show_action_error(self, message: str) -> None:
+        """Display a view/share error message on the status label.
+
+        Bypasses ``_refresh_save_state``'s copy so a transient JNI error stays
+        readable until the user takes another action (e.g. reruns save).
+        """
+        self._save_status_label.text = message
+
+    def _refresh_save_state(self) -> None:
+        snapshot = self._current_snapshot
+        if snapshot is None:
+            self._save_button.disabled = True
+            self._view_button.disabled = True
+            self._share_button.disabled = True
+            return
+        if snapshot.is_saved:
+            self._save_button.text = "已保存"
+            self._save_button.disabled = True
+            self._view_button.disabled = False
+            self._share_button.disabled = False
+            self._save_status_label.text = "已保存至相册的 Pictures/ReversibleMosaic 目录。"
+        else:
+            self._save_button.text = "保存到相册"
+            self._save_button.disabled = False
+            self._view_button.disabled = True
+            self._share_button.disabled = True
+            if snapshot.save_error:
+                self._save_status_label.text = f"上次保存失败: {snapshot.save_error}"
+            else:
+                self._save_status_label.text = "尚未保存, 离开此页可能丢失结果。"
+
+    # -- button handlers ----------------------------------------------------
+
+    def _on_save(self) -> None:
+        app = App.get_running_app()
+        if app is None or self._current_snapshot is None:
+            return
+        self._save_status_label.text = "正在保存到相册..."
+        self._save_button.disabled = True
+        # Route through the app so the platform gateway lookup + callback
+        # scheduling live in one place.
+        if hasattr(app, "save_current_result"):
+            app.save_current_result()
+
+    def _on_view(self) -> None:
+        app = App.get_running_app()
+        if app is None:
+            return
+        if hasattr(app, "view_current_result"):
+            app.view_current_result()
+
+    def _on_share(self) -> None:
+        app = App.get_running_app()
+        if app is None:
+            return
+        # FR-SAVE-005 reminder: platform manipulation kills recoverability.
+        self._show_share_reminder(lambda: app.share_current_result())
+
+    def _show_share_reminder(self, on_confirm: Callable[[], None]) -> None:
+        content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
+        content.add_widget(
+            Label(
+                text=(
+                    "分享前请选择\"文件/原图\"发送。\n"
+                    "多数社交平台会重新压缩或改动像素,\n"
+                    "改动后无法保证恢复。"
+                ),
+                halign="center",
+                valign="middle",
+            )
+        )
+        buttons = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
+        )
+        cancel = Button(text="取消")
+        proceed = Button(text="继续分享")
+        buttons.add_widget(cancel)
+        buttons.add_widget(proceed)
+        content.add_widget(buttons)
+        popup = Popup(title="分享提示", content=content, size_hint=(0.85, 0.5), auto_dismiss=False)
+        cancel.bind(on_release=lambda _btn: popup.dismiss())
+
+        def _confirm(_btn: Button) -> None:
+            popup.dismiss()
+            on_confirm()
+
+        proceed.bind(on_release=_confirm)
+        popup.open()
 
     def _on_copy_share_code(self) -> None:
         app = App.get_running_app()
-        if app is not None and hasattr(app, "copy_share_code_to_clipboard"):
-            app.copy_share_code_to_clipboard(self._share_code_label.text)
+        if app is None:
+            return
+        if not hasattr(app, "copy_share_code_to_clipboard"):
+            return
+        snapshot = self._current_snapshot
+        if snapshot is None or snapshot.operation != "encrypted":
+            return
+        app.copy_share_code_to_clipboard(snapshot.share_code_display)
+        self._save_status_label.text = "已复制到剪贴板 (其他软件可能读取剪贴板,请及时清除)。"
+
+    def _on_back(self) -> None:
+        snapshot = self._current_snapshot
+        if snapshot is not None and not snapshot.is_saved:
+            self._show_unsaved_confirmation()
+            return
+        self._go_home()
+
+    def _show_unsaved_confirmation(self) -> None:
+        """FR-SAVE-007 unsaved-leave prompt."""
+        content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
+        content.add_widget(
+            Label(
+                text=(
+                    "当前结果尚未保存到相册,\n"
+                    "离开后结果可能丢失。\n"
+                    "确认离开?"
+                ),
+                halign="center",
+                valign="middle",
+            )
+        )
+        buttons = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
+        )
+        cancel = Button(text="继续保存")
+        proceed = Button(text="仍然离开")
+        buttons.add_widget(cancel)
+        buttons.add_widget(proceed)
+        content.add_widget(buttons)
+        popup = Popup(
+            title="尚未保存",
+            content=content,
+            size_hint=(0.85, 0.5),
+            auto_dismiss=False,
+        )
+        cancel.bind(on_release=lambda _btn: popup.dismiss())
+
+        def _confirm(_btn: Button) -> None:
+            popup.dismiss()
+            self._go_home()
+
+        proceed.bind(on_release=_confirm)
+        popup.open()
 
     def _go_home(self) -> None:
         if self.manager is not None:

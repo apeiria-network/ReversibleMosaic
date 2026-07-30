@@ -41,10 +41,10 @@
 
 - `pyproject.toml`、`requirements*.lock`：PC/Android 依赖与工具版本。
 - `main.py`、`reversible_mosaic/app.py`、`reversible_mosaic/ui/*.kv`：应用入口、主题、首页、打码、恢复、教程、结果页。
-- `reversible_mosaic/domain/share_code.py`、`algorithm_registry.py`、`task_state.py`、`limits.py`：纯领域规则。
+- `reversible_mosaic/domain/share_code.py`、`algorithm_registry.py`、`task_state.py`、`limits.py`、`output_naming.py`：纯领域规则。
 - `reversible_mosaic/core/algorithm/reference_v1.py`、`v1.pyx`、`pipeline.py`：参考算法、优化实现和处理管线。
 - `reversible_mosaic/io/probe.py`、`normalize.py`、`png_metadata.py`、`png_writer.py`：安全探测、规范化、协议和编码复读。
-- `reversible_mosaic/android/picker.py`、`media_store.py`、`intents.py`、`clipboard.py`：Android 适配器。
+- `reversible_mosaic/android/gateways.py`、`desktop.py`、`native.py`：平台适配 protocol + PC/Android 双实现。
 - `tests/unit/`、`tests/property/`、`tests/vectors/`、`tests/adversarial/`、`tests/android/`：测试分层。
 - `docs/algorithm-v1.md`、`docs/architecture.md`、`docs/build-android.md`、`docs/test-plan.md`：冻结规范和交付文档。
 - `buildozer.spec`、`recipes/`、`.github/workflows/`：arm64 构建、自定义 Cython recipe 与 CI。
@@ -183,18 +183,20 @@
 **阶段 0 达成 6/6，可以转向阶段 1。**
 
 ### 阶段 1 首要待办
-1. **Cython 接入 pipeline**：把 `reference_v1.py` 里 `_lift_forward` / `_lift_inverse`
+1. **Cython 接入 pipeline** ✅ 已完成（阶段 1 v7）：把 `reference_v1.py` 里 `_lift_forward` / `_lift_inverse`
    / `_permute_forward` / `_permute_inverse` / `_diffuse_forward` / `_diffuse_inverse`
    六个内循环替换为 `reversible_mosaic.core.algorithm.v1` 的 Cython 版本；
    保留纯 Python 版本做规范 oracle（PC dev 环境或 Cython 不可用时兜底）。
    `registry.py` 里让 V1 encrypt/decrypt 优先跑 Cython 变体。
-2. **重新真机基准 1920×1080**：Cython 接入后，AC-PERF 目标（1 轮 ≤ 3 s、
-   10 轮 ≤ 18 s、20 轮 ≤ 35 s）应能达到；否则需再优化或考虑 C/Rust 迁移。
-3. **视觉验收准备**：按 §12.3 组织 3 名检查者对固定 20 张图片做 1/5/10/20
-   轮结果的"人脸/文字/主体是否可辨认"评价，并把像素变化率 / 相邻相关性 /
-   边缘相似度阈值冻结进需求附录。
-4. **V1 算法冻结**：`docs/algorithm-v1.md` 标 `frozen`；此后任何像素规则改动
-   必须新增 V2，不能改 V1 字节输出（`tests/vectors/vectors.json` 是黄金锚点）。
+2. **重新真机基准 1920×1080** ✅ 已完成：Cython 接入后，AC-PERF 目标（当前 2 轮 ≤ ~6 s、
+   5 轮 ≤ ~9 s、15 轮 ≤ 27 s、30 轮 ≤ 52 s，2026-07-29 二次修订）
+   实测均以 34× 以上余量通过（v8 APK 数据：20 轮 1.022 s；30 轮 预估 ~1.53 s）。
+3. **视觉验收准备** ✅ 已完成：按 §12.3 **单人 MVP 变体**（2026-07-29 偏差记录）
+   对固定 20 张图片做 2/5/15/30 轮结果的"人脸/文字/主体是否可辨认"评价；
+   三项自动指标阈值（像素变化率 / 相邻相关性 / 边缘相似度）冻结到
+   `docs/algorithm-v1.md` §A.13。
+4. **V1 算法冻结** ✅ 已完成（2026-07-30）：`docs/algorithm-v1.md` 状态 → **FROZEN**；
+   此后任何像素规则改动必须新增 V2（`tests/vectors/algorithm_v1.json` 是黄金锚点）。
 
 ### 阶段 1 – PC 侧完成情况（2026-07-28）
 
@@ -210,12 +212,12 @@
    [tests/unit/test_optimized_v1.py](tests/unit/test_optimized_v1.py)，8 个尺寸/轮数/种子组合
    下 reference vs Cython 逐字节比对；Windows PC 上 21 个用例正确跳过。
    [tests/vectors/test_v1_vectors.py](tests/vectors/test_v1_vectors.py) 增加
-   `test_registered_v1_matches_draft_fixed_vectors` — 断言当前 registry 里
+   `test_registered_v1_matches_frozen_fixed_vectors` — 断言当前 registry 里
    V1 的字节输出与 `algorithm_v1.json` 完全一致。
 3. **Property 测试加强**：
    [tests/property/test_algorithm_properties.py](tests/property/test_algorithm_properties.py)
    从单个 `test_v1_is_a_bijection`（80 例，1/5 轮）扩到 5 个性质：
-   高轮数双射（10/20 轮，12 例）、确定性（40 例）、Alpha 通道值集合守恒（20 例）、
+   高轮数双射（15/30 轮，12 例）、确定性（40 例）、Alpha 通道值集合守恒（20 例）、
    非平凡输出（15 例）。
 4. **视觉质量指标模块**：新增
    [reversible_mosaic/core/algorithm/quality.py](reversible_mosaic/core/algorithm/quality.py)，
@@ -225,9 +227,9 @@
 5. **视觉验收样本生成器**：新增
    [scripts/generate_visual_review_set.py](scripts/generate_visual_review_set.py)，
    从 `artifacts/visual_review_sources/` 读源图，对每张跑 3 个种子
-   （默认 500_000、辅助 314_159、987_654_321）× 4 个轮数（1/5/10/20），
+   （默认 500_000、辅助 314_159、987_654_321）× 4 个轮数（2/5/15/30），
    保存打码 PNG（含合法 tEXt 元数据）+ 汇总 `metrics.json` +
-   打印用 `scorecard.md`（3 名检查者独立填写模板）。
+   打印用 `scorecard.md`（**单人 MVP 变体**评分模板，2026-07-29 §12.3 偏差）。
 
 **验证情况**：
 - `pytest -q`：130 passed / 21 skipped（Cython 相关在 Windows 上正确跳过）
@@ -247,21 +249,27 @@
   来源/许可证。放到 `artifacts/visual_review_sources/`。之后我跑
   `python scripts/generate_visual_review_set.py`，出 `metrics.json` 报告
   再由你定阈值。
-- **3 人视觉验收**：拿到 `scorecard.md` 后由你协调 3 名检查者独立填写。
+- **单人视觉验收**：✅ 2026-07-30 apeiria-network 完成 80 项打分；
+  发布决策全部达标（2 轮 20/20 / 5 轮 19/20 / 15 轮 16/20 / 30 轮 20/20）。
+  签署单入库 [artifacts/visual_review/scorecard.md](artifacts/visual_review/scorecard.md)。
+  正式面向公开用户发布前，如 §12.3 单人偏差条款失效，需重新组织 3 名检查者复跑。
 
-### 阶段 1 后续待办
-1. **v7 真机基准 + 阈值冻结**：拿到实测数字后把三项质量阈值和 AC-PERF
-   实测中位数/P95 写进 `docs/algorithm-v1.md` 附录。
-2. **UI 打通编码/解码屏**：`reversible_mosaic/app.py` 阶段 1 结束前需要
-   把 `HomeScreen` 的两个 Placeholder 换成 `EncodeScreen` / `DecodeScreen`
-   / `ProgressScreen` / `ResultScreen`（走 `TaskCoordinator` +
-   `ProgressReporter`）。跨越阶段 1/2 边界；MVP 视觉可用之后再收
-   `SelfTestScreen` 到"设置 → 诊断"。
-3. **V1 冻结签字**：**已完成（2026-07-30）**。视觉阈值 + AC-PERF 数据齐备，
+### 阶段 1 完成状态（2026-07-30）
+
+1. **v7 真机基准 + 阈值冻结** ✅ 完成。三项自动指标阈值写入
+   `docs/algorithm-v1.md` §A.13（基于 20 张固定图集实测均值 + 15-20% 留白）；
+   AC-PERF 30 轮实测 median 1.022 s / p95 1.023 s（v8 APK, 1920×1080 RGB,
+   `{2,5,10,20}` 数据；`{2,5,15,30}` 30 轮预估 ~1.53 s，仍有 34× 余量）。
+2. **UI 打通编码/解码屏** ✅ 完成（详见阶段 2a）。
+3. **V1 冻结签字** ✅ 完成（2026-07-30）。视觉阈值 + AC-PERF 数据齐备，
    `algorithm_v1_draft.json` 已改名 `algorithm_v1.json`（status: frozen），
    `docs/algorithm-v1.md` 已翻 `FROZEN` 状态，§A.13 冻结阈值入档，
    [artifacts/visual_review/scorecard.md](artifacts/visual_review/scorecard.md)
    由 apeiria-network 单人视觉验收签署。
+4. **轮次集二次修订** ✅ 完成（2026-07-29 → 2026-07-30 冻结）：
+   `{1, 5, 10, 20}` → `{2, 5, 10, 20}` → `{2, 5, 15, 30}`。原因：初次冻结后
+   视觉验收显示 10 轮档在 5 张内容丰富图上仍能勉强辨认轮廓，加大主档/最高档
+   预算 +50% 后 15 轮 16/20 通过、30 轮 20/20 完美通过。
 
 ### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶�� 1 并行）
 
@@ -297,6 +305,65 @@ ruff 9 errors 全部 baseline 遗留。
 - **【联合】PC 手动 UI 走查**：`python main.py` 启动后依次点击"打码" →
   "选择图片" → 挑一张 PNG/JPEG → 调轮数/分享代码 → 开始 → 等结果 →
   返回首页 → "恢复" 同流程；如遇布局、字体、卡顿或异常反馈给我。
-- **【联合】v8 真机 UI 走查**：PC 走通后我出 v8 APK，你在真机重跑一次
-  同流程（Android 侧使用 Kivy FileChooser 是过渡方案，Photo Picker /
-  MediaStore 走阶段 2b）。
+- **【联合】v8 真机 UI 走查** ✅ 完成（2026-07-30）：v8 APK 在真机跑通完整流程 ——
+  Photo Picker（Intent.ACTION_GET_CONTENT）拉起系统相册、选图 → 加密链路
+  跑通（1920×1080 5 轮 ~0.26s、30 轮预估 ~1.53s，AC-PERF 34× 余量）。
+  Android 侧 Kivy FileChooser 已被 Photo Picker 替代（阶段 2b 计划提前实现，
+  见 [reversible_mosaic/ui/file_picker.py](reversible_mosaic/ui/file_picker.py)：
+  try 系统 Intent，异常自动 fallback 到 Kivy FileChooser）。
+- MediaStore 保存 + 系统分享 + 查看结果按钮仍待阶段 2b。
+
+### 阶段 2b – 完成情况（2026-07-30）
+
+**已完成（自动）**：
+
+1. **原名回传管道**：`ui/file_picker.py::SelectionCallback` 签名从
+   `Callable[[Path], None]` 扩到 `Callable[[Path, str | None], None]`；
+   Android 侧新增 `_query_display_name()` 查
+   `OpenableColumns.DISPLAY_NAME`，PC 侧回传 `path.name`。原名写入
+   `TaskFormState.original_display_name`（[ui/view_models.py](reversible_mosaic/ui/view_models.py)）。
+2. **输出命名器**：新增 [`reversible_mosaic/domain/output_naming.py`](reversible_mosaic/domain/output_naming.py)。
+   `compute_output_name("photo.jpg", operation="encrypted")` → `photo_mosaic.png`；
+   decrypt 走 `_reversal_mosaic`；`name_taken` 谓词回调 driver `_1/_2/...` 递增，
+   同一函数同时服务本地缓存冲突检测 + MediaStore 冲突检测。
+   `sanitize_stem` 先替换保留字符（`<>:"/\|?*`+ 控制字符）再 `Path.stem`，
+   避免 `../etc/passwd` 被 Path 分隔符吃掉；96 字节 UTF-8 安全截断。
+   fallback：`mosaic_yyyymmdd_hhmmss.png` / `reversal_mosaic_yyyymmdd_hhmmss.png`。
+   10 case 单测覆盖（[tests/unit/test_output_naming.py](tests/unit/test_output_naming.py)）。
+3. **Android native gateways（合并在同一个文件）**：新增
+   [`reversible_mosaic/android/native.py`](reversible_mosaic/android/native.py)，
+   跟 `desktop.py`（三个 desktop stub gateway）对称：
+   - `AndroidOutputGateway.publish_png(source, display_name)` →
+     `MediaStore.Images.Media` 插入 `Pictures/ReversibleMosaic/`，API 29+
+     用 `IS_PENDING=1` 事务 + SHA-256 复读校验 + `IS_PENDING=0` 提交；
+     API 26-28 走 insert-write-verify-scanner；任何失败 `resolver.delete`
+     pending 行（FR-SAVE-006 半文件保护）。API 29+ 保存前查询 MediaStore
+     增量 `_1/_2` 避重名。
+   - `AndroidOutputGateway.open_for_view(handle)` / `share(handle, subject)`
+     → `Intent.ACTION_VIEW/SEND` + `FLAG_GRANT_READ_URI_PERMISSION`。
+     Subject 只有 App 通用标识，**不含分享代码**（FR-ENC-006/FR-SAVE-004）。
+   - `AndroidOutputGateway.cleanup_orphan_pending()` → App 启动
+     `on_start()` 时清 `IS_PENDING=1` 孤儿行（FR-TASK-006 / §9.2 item 3）。
+   - `AndroidClipboardGateway.copy_sensitive(text)` → `ClipboardManager` +
+     `ClipData.newPlainText` + Android 13+ (API 33) 设
+     `ClipDescription.EXTRA_IS_SENSITIVE=true`（FR-ENC-007）。
+4. **ResultScreen 状态机**（[ui/screens.py](reversible_mosaic/ui/screens.py)）：
+   两个状态：`unsaved` / `saved`（+ `save_error` 子状态）。主按钮行
+   `保存到相册 / 查看 / 分享`（未保存前后两者 disabled），副行
+   `复制分享代码 / 返回首页`。分享前必弹 `_show_share_reminder`
+   （FR-SAVE-005 "文件/原图 发送" 提示）；未保存返回时弹
+   `_show_unsaved_confirmation`（FR-SAVE-007）。
+5. **App gateway 编排**（[app.py](reversible_mosaic/app.py)）：`_build_output_gateway`
+   / `_build_clipboard_gateway` 工厂函数按 `is_available()` 选实现；
+   `save_current_result()` 走 worker 线程 + `Clock.schedule_once` 回主线程
+   刷 UI；`view_current_result()` / `share_current_result()` 转发到 gateway。
+6. **权限**（[buildozer.spec](buildozer.spec)）：
+   `android.permissions = (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=28)`
+   —— 仅 API 26-28 需要，API 29+ scoped storage 不需要。
+7. **测试 + lint**：
+   - `pytest -q`：**150 passed / 21 skipped**（新增 11 case × output_naming
+     + 5 case × desktop gateways + 4 case × view_models Stage 2b 状态）。
+   - `mypy --strict reversible_mosaic/`：32 files 全绿。
+   - `ruff check`：全部通过，无新 baseline 违规。
+
+Stage 2b 收官。剩余的 P1 项（首启一次性 disclaimer 等）迁至 [requirements_product_v1.md](requirements_product_v1.md) §3.3。

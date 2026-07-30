@@ -17,7 +17,20 @@ def test_documented_input_limit_is_binary_50_mib() -> None:
 
 @pytest.mark.parametrize(
     ("width", "height"),
-    [(1, 1), (8192, 128), (64, 1), (4000, 3000), (4096, 3072), (5000, 4000)],
+    [
+        (1, 1),
+        (12288, 192),  # exactly 64:1 aspect at max edge
+        (64, 1),
+        (4000, 3000),
+        (4096, 3072),
+        (5000, 4000),
+        (6000, 4000),  # 24MP 3:2 phone camera direct output
+        (5657, 4243),  # 24MP 4:3
+        (9798, 2449),  # 24MP 4:1 mild panorama
+        (8000, 6000),  # 48MP 4:3 direct output (Xiaomi/Samsung common)
+        (8160, 6120),  # 50MP 4:3 flagship main camera direct output
+        (10000, 5000),  # 50M pixels at 2:1
+    ],
 )
 def test_valid_dimensions(width: int, height: int) -> None:
     validate_dimensions(width, height)
@@ -25,7 +38,15 @@ def test_valid_dimensions(width: int, height: int) -> None:
 
 @pytest.mark.parametrize(
     ("width", "height"),
-    [(0, 1), (1, 0), (8193, 1), (65, 1), (5001, 4000), (5001, 4001)],
+    [
+        (0, 1),
+        (1, 0),
+        (12289, 1),  # 1 past MAX_EDGE
+        (65, 1),  # aspect > 64:1
+        (10001, 5000),  # 50M + 5000 pixels over MAX_PIXELS
+        (12000, 9000),  # 108MP direct output — 108M pixels, over MAX_PIXELS
+        (16000, 12000),  # 200MP direct output — both dims + total exceed
+    ],
 )
 def test_invalid_dimensions(width: int, height: int) -> None:
     with pytest.raises(ResourceLimitError):
