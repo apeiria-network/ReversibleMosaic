@@ -445,4 +445,39 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
 
 **Block 1 尚待用户参与**：无。全部为自动化测试扩展，PC 端跑完。
 
+#### Block 2 完成情况（2026-07-30）
+
+**已完成（自动）**：
+
+1. **requirements-dev.lock 刷新**：从当前 pip freeze 精简出直接依赖 + 关键传递
+   依赖锁定值 —— Cython 3.2.9、Kivy 2.3.1、KivyMD 1.2.0、pytest 9.1.1、
+   mypy 1.20.2、ruff 0.16.0、Hypothesis 6.161.2、NumPy 2.4.6、Pillow 12.3.0、
+   piexif 1.1.3 等。Windows-only 依赖（pywin32、kivy-deps）不入 lock 保持
+   跨平台可复现性。
+2. **docs/build-android.md 大改**：从阶段 0 草案升级为阶段 3 冻结基线。
+   记录了主机侧（OpenJDK 17、NDK r25b、Buildozer、python-for-android main）、
+   APK 内运行时（target Python 3.14、NumPy 2.3.0、Pillow 11.3.0、Cython 3.2.9）、
+   Android 目标（API 34 / minapi 26 / arm64-v8a / 竖屏 / 仅 WRITE_EXTERNAL_STORAGE
+   maxSdkVersion=28）三层完整冻结值。补齐一次性准备步骤、增量构建入口、
+   Cython 交叉编译时序、APK 版本后缀命名规范、签名策略与已知构建障碍五节。
+3. **docs/release-notes.md 新增**：v0.1.0 MVP 内部签名 Release 的发行说明。
+   § 1 版本身份与限制（applicationId 探针占位 + 内部自签 keystore + 五步走
+   发布身份切换清单）；§ 2 已完成核心功能；§ 3 已知限制/非目标；§ 4 已知
+   问题；§ 5 版本历史（Stage 0-3 全流程 + v16 APK SHA-256 占位表格）；
+   **§ 6 第三方组件与许可清单**（APK 运行时 14 项 + PC dev 环境 + 构建
+   工具三大类，包含 CPython/Kivy/SDL2/PyJNIus/NumPy/Pillow/Cython/wqy-microhei
+   等及其许可协议 PSF-2.0/MIT/Zlib/BSD-3/HPND/Apache-2.0 等）；§ 7 用户教程
+   要点复述；§ 8 支持与反馈。
+4. **docs/test-plan.md 新增**：AC 全表追踪 + 环境快照。§ 1 环境快照（自动
+   测试环境 + 目标验收设备 + 冻结阈值）；§ 2 逐条追踪 AC-001 ~ AC-017 +
+   AC-PERF，每条给执行方 / 证据位置 / 状态标记；§ 3 覆盖率总结（250 passed
+   / 21 skipped）；§ 4 未通过与已豁免（§12.3 单人偏差、FR-TASK-006 进程
+   回收不承诺）；§ 5 后续更新计划（Block 3/4 出真机数据后追加）。
+
+**验证情况**：
+- 4 个文档文件（1 刷新 + 1 重写 + 2 新增）都经过审阅，无内部链接失效。
+- pytest / ruff / mypy 无回归（Block 2 未改任何代码）。
+
+**Block 2 尚待用户参与**：无。全部文档层面工作，PC 端完成。
+
 

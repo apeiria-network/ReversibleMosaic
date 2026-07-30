@@ -1042,8 +1042,22 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
   rounds {2, 5, 15, 30}, R=max(8, min(W,H)//32)）。**附录 A：面向读者的算法讲解**
   （A.1–A.12，2026-07-30 追加）给出直觉版说明 + ASCII 公式 + 可逆性直觉证明，
   是"想读懂 V1 在做什么"的入口，不覆盖 §1–5 的严格规范。
-- [`docs/build-android.md`](build-android.md)：Android 构建说明（p4a
-  recipe、NDK 布局、镜像用法）。
+- [`docs/build-android.md`](build-android.md)：**Stage 3 Block 2 大改** ——
+  阶段 0 草案升级为**阶段 3 冻结基线**。工具链版本（OpenJDK 17 / NDK r25b /
+  target Python 3.14 / NumPy 2.3.0 / Pillow 11.3.0 / Cython 3.2.9）、Android
+  目标（API 34 / minapi 26 / arm64-v8a）、一次性准备、增量构建、Cython 交叉
+  编译时序、APK 版本后缀命名、签名策略、已知障碍与对策全部落地。所有工具链
+  升级必须同步这份文档。
+- [`docs/release-notes.md`](release-notes.md)：**Stage 3 Block 2 新增** ——
+  v0.1.0 MVP 内部签名 Release 发行说明。§1 版本身份与限制（applicationId
+  占位 + 内部自签 keystore + 正式发布五步走）；§2-4 功能/限制/已知问题；§5
+  版本历史（Stage 0-3 全流程 + APK SHA-256 表格占位，Block 3 填充）；§6
+  **第三方组件与许可清单**（APK 内 14 项 + PC dev + 构建工具）；§7-8 用户
+  教程要点/支持反馈。
+- [`docs/test-plan.md`](test-plan.md)：**Stage 3 Block 2 新增** —— 测试计划
+  与 AC 追踪。§1 环境快照 + 冻结阈值；§2 AC-001~017 + AC-PERF 逐条 status
+  标记；§3 覆盖率汇总（250 passed / 21 skipped）；§4 §12.3 单人偏差豁免记录；
+  §5 Block 3/4 收官时追加的真机数据槽位。
 - [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据；阶段 3 冻结
   时会把 1920×1080 真机耗时/内存写入。
 - [`docs/source-index.md`](source-index.md)：**本文件**。

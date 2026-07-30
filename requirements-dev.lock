@@ -1,20 +1,30 @@
 colorama==0.4.6
 coverage==7.15.2
+Cython==3.2.9
 hypothesis==6.161.2
 iniconfig==2.3.0
+kivy-deps.angle==0.4.0
+kivy-deps.glew==0.3.1
+kivy_deps.sdl2==0.8.0
+Kivy-Garden==0.1.5
+Kivy==2.3.1
+kivymd==1.2.0
 librt==0.13.0
 mypy==1.20.2
 mypy_extensions==1.1.0
 numpy==2.4.6
 packaging==26.2
 pathspec==1.1.1
+piexif==1.1.3
 pillow==12.3.0
 pluggy==1.6.0
 Pygments==2.20.0
-pytest==9.1.1
 pytest-cov==7.1.0
+pytest==9.1.1
 # Editable Git install with no remote (reversible-mosaic==0.1.0)
 -e d:\python\python_projects\reversiblemosaic
 ruff==0.16.0
 sortedcontainers==2.4.0
 typing_extensions==4.16.0
+</content>
+</invoke>
