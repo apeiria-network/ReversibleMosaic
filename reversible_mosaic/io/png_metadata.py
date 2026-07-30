@@ -27,7 +27,7 @@ class MosaicMetadata:
     app_marker: str
     operation_type: Literal["encrypted", "restored"]
     algorithm_version: int
-    rounds: Literal[1, 5, 10, 20]
+    rounds: Literal[2, 5, 15, 30]
     pixel_mode: Literal["RGB", "RGBA"]
     width: int
     height: int

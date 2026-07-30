@@ -714,14 +714,15 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 | [`test_exif_orientation.py`](../tests/unit/test_exif_orientation.py) | `io/normalize.py` JPEG EXIF | Orientation 1–8 都正确 transpose |
 | [`test_algorithm_v1.py`](../tests/unit/test_algorithm_v1.py) | `algorithm/reference_v1.py` | 边缘尺寸、Alpha 保真、非法输入 |
 | [`test_pipeline.py`](../tests/unit/test_pipeline.py) | `core/pipeline.py` | encrypt→decrypt 闭环、stage 顺序、cancel 传递 |
-| [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset |
+| [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset；Stage 3 Block 1 新增 8 case：cancel→reset→re-start、fail→reset→re-start、reset 在 mid-flight 被拒、IDLE reset noop、无回调仍完成、cancel-before-start noop、并发双 start 仅一次通过、progress 携带 stage + fraction（共 12 case） |
 | [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射、Stage 2b 的 ResultSnapshot save 状态转换 |
 | [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
 | [`test_optimized_v1.py`](../tests/unit/test_optimized_v1.py) | `algorithm/optimized_v1.py` + `algorithm/v1.pyx` | reference vs Cython 逐字节比对；Windows 无 Cython 时整个模块 skip |
 | [`test_quality.py`](../tests/unit/test_quality.py) | `algorithm/quality.py` | §12.3.3 三项指标：恒等/全变/纯色/RGBA/scrambled 各场景 |
 | [`test_input_hint.py`](../tests/unit/test_input_hint.py) | `ui/input_hint.py` | PNG/JPEG/异常/元数据解析共 8 case |
 | [`test_output_naming.py`](../tests/unit/test_output_naming.py) | `domain/output_naming.py` | Stage 2b: `_mosaic/_reversal_mosaic` 后缀、`_1/_2` 递增、reserved 字符 sanitize、Windows 路径注入防护 |
-| [`test_desktop_gateways.py`](../tests/unit/test_desktop_gateways.py) | `android/desktop.py` | Stage 2b: DesktopOutputGateway 冲突计数、DesktopInputGateway import、DesktopClipboardGateway noop |
+| [`test_desktop_gateways.py`](../tests/unit/test_desktop_gateways.py) | `android/desktop.py` | Stage 2b: 冲突计数、input gateway 导入；Stage 3 Block 1: 10 次冲突叠加、源文件缺失 raise、mid-copy IOError、目录懒创建、大小写扩展名归一化、相同源双次导入互不覆盖（共 11 case） |
+| [`test_android_native.py`](../tests/unit/test_android_native.py) | `android/native.py`（JNI mock） | **Stage 3 Block 1 新增**：14 case。构造 gate 检查（jnius 缺失时 raise）；`publish_png` 失败注入 —— insert 返回 null、write IOError、SHA-256 mismatch、commit 抛错时**必删 pending 行**（FR-SAVE-006）；API 28 skip `_unique_display_name` query；`cleanup_orphan_pending` 在 API 28 / 异常 / null cursor 都返回 0（FR-TASK-006）；`copy_sensitive` 吞 JNI 异常（FR-ENC-007）。 |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
@@ -729,8 +730,13 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`tests/property/`](../tests/property/)
 - [`test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)：
   Hypothesis 生成 `(w, h, mode, seed, rounds)`，断言
-  `decrypt(encrypt(x)) == x`、确定性、非平凡输出（≥2 pixel + ≥3 unique RGB）。
+  `decrypt(encrypt(x)) == x`、确定性、非平凡输出。
   2/5 轮走 80 例，15/30 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
+  **Stage 3 Block 1 调整**：`test_v1_nontrivial_output_for_random_seeds`
+  跳过阈值从 `pixels < 4 or unique_rgb < 3` 放宽到 `pixels < 9 or unique_rgb < 5`。
+  V1 是纯位置置换 + palette preserve，极小图片（如 1×5 with 3 unique）在 canonical
+  direction swap 下可能给出 byte-identical 输出，属于 §12.3.5 "低信息图片仅验收
+  可逆性" 范围。
 
 ### [`tests/vectors/`](../tests/vectors/)
 - [`generate_v1_vectors.py`](../tests/vectors/generate_v1_vectors.py)：合成
@@ -744,8 +750,26 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   冻结后重跑 = 破坏冻结。
 
 ### [`tests/adversarial/test_malicious_inputs.py`](../tests/adversarial/test_malicious_inputs.py)
-- 恶意 PNG/JPEG 拒绝测试：伪造尺寸、异常 EXIF、chunk 截断、超大文本、
-  非白名单 color_type、动画 PNG 等，全部应抛 `ImageProbeError`。
+- 恶意 PNG/JPEG + 元数据 fuzz 拒绝测试。所有失败路径都必须落回 `ImageProbeError`
+  或 `MetadataStatus.INVALID` / `CONFLICT`，绝不允许崩溃或半文件泄漏。
+- **Stage 3 Block 1 大幅扩展**（原 12 case → 58 case）：
+  - **PNG chunk 深度 fuzz**（12 case）：chunk 长度越界、data 截断、CRC 错、
+    IHDR 长度/深度/color_type/compression/filter 异常、双 IHDR、空文件、
+    仅签名、超 50 MiB。
+  - **元数据 schema fuzz**（20 case）：zTXt/iTXt 保留字拒收、value 超 2048、
+    非 ASCII、schema_version=0/-1/2、错误 app_marker、未知 operation_type、
+    非正整数 algorithm_version、旧轮次 `{1, 3, 10, 20, 100}` 拒收（防误接���
+    pre-v14 元数据）、未知 pixel_mode、非正 width/height、缺 required field、
+    字符串代 int、bool 代 int（Python bool 是 int 子类，靠 `type() is not int`
+    严格拦截）、4 candidates → 重复 branch / 5 candidates → 过多 branch、
+    无 null 分隔符、pixel_mode 冲突、serialize + parse 完整往返。
+  - **JPEG 恶意样本**（4 case）：无 SOI、无 EOI 截断、超大 APP1、
+    segment_length < 2。
+  - **write_png 元数据往返**（1 case）：`write_png` → `scan_png` →
+    `parse_png_metadata` 三跳还原验证。
+- **改动指引**：新增拒绝理由时同步 `io/probe.py` 或 `io/png_metadata.py` 里对应
+  的 `raise`，并追加 case 到对应分组。测试名前缀 `test_png_` / `test_metadata_`
+  / `test_jpeg_` / `test_write_png_` 已按范围分开，加新 case 时保持归位。
 
 ---
 

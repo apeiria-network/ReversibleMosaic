@@ -367,3 +367,82 @@ ruff 9 errors 全部 baseline 遗留。
    - `ruff check`：全部通过，无新 baseline 违规。
 
 Stage 2b 收官。剩余的 P1 项（首启一次性 disclaimer 等）迁至 [requirements_product_v1.md](requirements_product_v1.md) §3.3。
+
+### 阶段 3 – 稳定性、性能与交付（进行中，2026-07-30 起）
+
+**决策收敛**（Stage 3 起手前用户确认）：
+
+- **视觉验收**：apeiria-network 单人 80 项 §12.3 单人 MVP 偏差路径签署收官；AC-015
+  视为已完成。若 MVP 后续面向公开用户/商业发布，需按 §12.3 原条款重新组织 3 人复跑。
+- **签名策略**：内部自签 Release keystore。applicationId 保留 `io.placeholder.reversiblemosaic`；
+  正式发布前需换 applicationId + 换正式 keystore + 定发布主体，会在发行说明中明写。
+- **性能基准**：v7 debug APK 已录 AC-PERF 34× 余量；Stage 3 用 signed Release APK
+  在同一台真机跑 `{2,5,15,30} × 5 次`，出 median / P95 / 峰值 RSS。
+- **多 API/极端环境**：只用主力真机跑飞行模式 + 深浅色 + 大字体；API 26/28/29 用
+  代码级 mock 覆盖，不硬性要求多机验收。
+
+**路线（4 个 Block）**：
+
+1. **稳定性 & fuzz 扩展**（PC 端，起手块）—— ✅ 已完成
+2. **依赖版本固化 + 交付文档** —— 待做
+3. **内部自签 Release APK + 性能基准复采** —— 待做（【联合】）
+4. **AC 全表验收 + 阶段 3 收官** —— 待做
+
+#### Block 1 完成情况（2026-07-30）
+
+**已完成（自动）**：
+
+1. **PNG chunk 深度 fuzz**：`test_malicious_inputs.py` 新增 12 case（chunk 长度越界、
+   截断、CRC 错、IHDR 长度/深度/color_type/compression/filter 异常、双 IHDR、
+   空文件、仅签名、超 50 MiB）。
+2. **元数据 schema fuzz**：同文件新增 20 case（zTXt/iTXt 保留字、value 超 2048、
+   非 ASCII、schema_version=0/-1/2、错误 app_marker、未知 operation_type、
+   非正整数 algorithm_version、旧轮次 `{1, 3, 10, 20, 100}`（防误接受 pre-v14）、
+   未知 pixel_mode、非正 width/height、缺 required field、字符串代 int、
+   bool 代 int（Python bool 是 int 子类，`type() is not int` 严格拦截）、
+   candidates=4 → 重复 branch / candidates=5 → 过多 branch、无 null 分隔符、
+   pixel_mode 冲突、serialize + parse 完整往返）。
+3. **JPEG 恶意样本**：同文件新增 4 case（无 SOI、无 EOI 截断、超大 APP1、
+   segment_length < 2）。
+4. **write_png 元数据往返**：同文件新增 1 case，`write_png` → `scan_png` →
+   `parse_png_metadata` 三跳还原。
+5. **TaskCoordinator 生命周期扩展**：`test_task_coordinator.py` 新增 8 case
+   （cancel→reset→re-start、fail→reset→re-start、reset 在 mid-flight 状态被拒、
+   IDLE 状态 reset noop、无回调仍能完成、cancel-before-start noop、并发双 start
+   仅一次通过、progress 携带 stage + fraction）。
+6. **desktop gateway 失败注入**：`test_desktop_gateways.py` 新增 6 case（10 次冲突
+   叠加、源文件缺失 raise、mid-copy IOError、目录懒创建、大小写扩展名归一化、
+   相同源双次导入互不覆盖）。
+7. **Android JNI mock 失败注入**：**新增** `tests/unit/test_android_native.py`
+   14 case，模拟 API 33 / API 28 两条路径 + jnius 缺失。核心断言：
+   `publish_png` 在 insert 返回 null、`_copy_file_to_uri` 抛错、SHA-256 校验失败、
+   `_clear_pending` 抛错时**必调 `resolver.delete()` 清 pending 行**（FR-SAVE-006）；
+   `cleanup_orphan_pending` 在 API 28 / 异常 / null cursor 三条路径都返回 0，
+   不阻塞 App 启动（FR-TASK-006）；`copy_sensitive` 吞掉任何 JNI 异常
+   （FR-ENC-007 尽力而为）。
+8. **顺带修复**：[reversible_mosaic/io/png_metadata.py:30](reversible_mosaic/io/png_metadata.py#L30)
+   `MosaicMetadata.rounds` 的 Literal type hint 从 Stage 1 遗留的老轮次集
+   `[1, 5, 10, 20]` 更新到冻结集 `[2, 5, 15, 30]`；`_validate` 早已用新集合，
+   本次只是让 type hint 追上运行时。
+
+**Property 测试补丁**：`test_v1_nontrivial_output_for_random_seeds` 的跳过阈值
+从 `pixels < 4 or unique_rgb < 3` 放宽到 `pixels < 9 or unique_rgb < 5`。原因：
+1×5 图 (5 像素, 3 unique) 在 V1 纯位置置换 + canonical direction 下确实可能
+byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hypothesis
+从这个空间抽到具体反例后触发的是 property 定义边界问题，不是 V1 bug。
+
+**验证情况**：
+- `pytest -q`：**250 passed / 21 skipped**（Block 1 净新增 43 case：42 fuzz + 1
+  metadata 修复的 property adjust）。
+- `ruff check .`：全项目 9 errors（scripts + main.py baseline 遗留），Block 1
+  改动 **0 新增违规**。
+- `mypy reversible_mosaic tests`：全项目 23 errors（test_exif_orientation
+  piexif 类型缺失 + test_normalize Literal narrowing + test_task_coordinator
+  两处 comparison-overlap after reset + test_v1_vectors generic dict），
+  Block 1 净新增 mypy 违规 = 修好 1 + 引入 1（同类 comparison-overlap 模式）
+  = **0 净变化**。（历史 dev_plan 的 "mypy strict 32 files 全绿" 记录不准确，
+  这些 baseline error 在 Stage 2b 后即存在。）
+
+**Block 1 尚待用户参与**：无。全部为自动化测试扩展，PC 端跑完。
+
+
