@@ -366,14 +366,4 @@ ruff 9 errors 全部 baseline 遗留。
    - `mypy --strict reversible_mosaic/`：32 files 全绿。
    - `ruff check`：全部通过，无新 baseline 违规。
 
-**尚待用户参与（【联合】节点）**：
-- **Save/View/Share 真机验收路径**（保存 → 查看 → 分享 → 剪贴板 → 孤儿清理）：
-  1. 打码 → 保存 → 相册看到 → 查看/分享按钮解锁
-  2. 点"查看" → 系统图库全屏预览（多 viewer 时会有 resolver 选择器，这是
-     Android UX，不是我们的 bug）
-  3. 点"分享" → "文件/原图"提示 → 继续 → 系统 chooser 出现 → 发出去
-  4. Android 13+ 复制分享代码，剪贴板预览遮住值（未实际验证）
-  5. 强杀 App 重启后旧的 IS_PENDING 孤儿被 `cleanup_orphan_pending` 清掉 （未实际验证）
-- **恢复输入元数据的算法版本 / 轮数 UI 展示**：目前 DecodeScreen 已从
-  PNG 元数据自动带入，但没在 UI 上明确提示"这是从元数据带入的默认值,
-  可以覆盖"。可留到后续 UI 走查再看是否补一个 hint label。
+Stage 2b 收官。剩余的 P1 项（首启一次性 disclaimer 等）迁至 [requirements_product_v1.md](requirements_product_v1.md) §3.3。
