@@ -183,18 +183,20 @@
 **阶段 0 达成 6/6，可以转向阶段 1。**
 
 ### 阶段 1 首要待办
-1. **Cython 接入 pipeline**：把 `reference_v1.py` 里 `_lift_forward` / `_lift_inverse`
+1. **Cython 接入 pipeline** ✅ 已完成（阶段 1 v7）：把 `reference_v1.py` 里 `_lift_forward` / `_lift_inverse`
    / `_permute_forward` / `_permute_inverse` / `_diffuse_forward` / `_diffuse_inverse`
    六个内循环替换为 `reversible_mosaic.core.algorithm.v1` 的 Cython 版本；
    保留纯 Python 版本做规范 oracle（PC dev 环境或 Cython 不可用时兜底）。
    `registry.py` 里让 V1 encrypt/decrypt 优先跑 Cython 变体。
-2. **重新真机基准 1920×1080**：Cython 接入后，AC-PERF 目标（1 轮 ≤ 3 s、
-   10 轮 ≤ 18 s、20 轮 ≤ 35 s）应能达到；否则需再优化或考虑 C/Rust 迁移。
-3. **视觉验收准备**：按 §12.3 组织 3 名检查者对固定 20 张图片做 1/5/10/20
-   轮结果的"人脸/文字/主体是否可辨认"评价，并把像素变化率 / 相邻相关性 /
-   边缘相似度阈值冻结进需求附录。
-4. **V1 算法冻结**：`docs/algorithm-v1.md` 标 `frozen`；此后任何像素规则改动
-   必须新增 V2，不能改 V1 字节输出（`tests/vectors/vectors.json` 是黄金锚点）。
+2. **重新真机基准 1920×1080** ✅ 已完成：Cython 接入后，AC-PERF 目标（当前 2 轮 ≤ ~6 s、
+   5 轮 ≤ ~9 s、15 轮 ≤ 27 s、30 轮 ≤ 52 s，2026-07-29 二次修订）
+   实测均以 34× 以上余量通过（v8 APK 数据：20 轮 1.022 s；30 轮 预估 ~1.53 s）。
+3. **视觉验收准备** ✅ 已完成：按 §12.3 **单人 MVP 变体**（2026-07-29 偏差记录）
+   对固定 20 张图片做 2/5/15/30 轮结果的"人脸/文字/主体是否可辨认"评价；
+   三项自动指标阈值（像素变化率 / 相邻相关性 / 边缘相似度）冻结到
+   `docs/algorithm-v1.md` §A.13。
+4. **V1 算法冻结** ✅ 已完成（2026-07-30）：`docs/algorithm-v1.md` 状态 → **FROZEN**；
+   此后任何像素规则改动必须新增 V2（`tests/vectors/algorithm_v1.json` 是黄金锚点）。
 
 ### 阶段 1 – PC 侧完成情况（2026-07-28）
 
@@ -210,12 +212,12 @@
    [tests/unit/test_optimized_v1.py](tests/unit/test_optimized_v1.py)，8 个尺寸/轮数/种子组合
    下 reference vs Cython 逐字节比对；Windows PC 上 21 个用例正确跳过。
    [tests/vectors/test_v1_vectors.py](tests/vectors/test_v1_vectors.py) 增加
-   `test_registered_v1_matches_draft_fixed_vectors` — 断言当前 registry 里
+   `test_registered_v1_matches_frozen_fixed_vectors` — 断言当前 registry 里
    V1 的字节输出与 `algorithm_v1.json` 完全一致。
 3. **Property 测试加强**：
    [tests/property/test_algorithm_properties.py](tests/property/test_algorithm_properties.py)
    从单个 `test_v1_is_a_bijection`（80 例，1/5 轮）扩到 5 个性质：
-   高轮数双射（10/20 轮，12 例）、确定性（40 例）、Alpha 通道值集合守恒（20 例）、
+   高轮数双射（15/30 轮，12 例）、确定性（40 例）、Alpha 通道值集合守恒（20 例）、
    非平凡输出（15 例）。
 4. **视觉质量指标模块**：新增
    [reversible_mosaic/core/algorithm/quality.py](reversible_mosaic/core/algorithm/quality.py)，
@@ -225,9 +227,9 @@
 5. **视觉验收样本生成器**：新增
    [scripts/generate_visual_review_set.py](scripts/generate_visual_review_set.py)，
    从 `artifacts/visual_review_sources/` 读源图，对每张跑 3 个种子
-   （默认 500_000、辅助 314_159、987_654_321）× 4 个轮数（1/5/10/20），
+   （默认 500_000、辅助 314_159、987_654_321）× 4 个轮数（2/5/15/30），
    保存打码 PNG（含合法 tEXt 元数据）+ 汇总 `metrics.json` +
-   打印用 `scorecard.md`（3 名检查者独立填写模板）。
+   打印用 `scorecard.md`（**单人 MVP 变体**评分模板，2026-07-29 §12.3 偏差）。
 
 **验证情况**：
 - `pytest -q`：130 passed / 21 skipped（Cython 相关在 Windows 上正确跳过）
@@ -247,21 +249,27 @@
   来源/许可证。放到 `artifacts/visual_review_sources/`。之后我跑
   `python scripts/generate_visual_review_set.py`，出 `metrics.json` 报告
   再由你定阈值。
-- **3 人视觉验收**：拿到 `scorecard.md` 后由你协调 3 名检查者独立填写。
+- **单人视觉验收**：✅ 2026-07-30 apeiria-network 完成 80 项打分；
+  发布决策全部达标（2 轮 20/20 / 5 轮 19/20 / 15 轮 16/20 / 30 轮 20/20）。
+  签署单入库 [artifacts/visual_review/scorecard.md](artifacts/visual_review/scorecard.md)。
+  正式面向公开用户发布前，如 §12.3 单人偏差条款失效，需重新组织 3 名检查者复跑。
 
-### 阶段 1 后续待办
-1. **v7 真机基准 + 阈值冻结**：拿到实测数字后把三项质量阈值和 AC-PERF
-   实测中位数/P95 写进 `docs/algorithm-v1.md` 附录。
-2. **UI 打通编码/解码屏**：`reversible_mosaic/app.py` 阶段 1 结束前需要
-   把 `HomeScreen` 的两个 Placeholder 换成 `EncodeScreen` / `DecodeScreen`
-   / `ProgressScreen` / `ResultScreen`（走 `TaskCoordinator` +
-   `ProgressReporter`）。跨越阶段 1/2 边界；MVP 视觉可用之后再收
-   `SelfTestScreen` 到"设置 → 诊断"。
-3. **V1 冻结签字**：**已完成（2026-07-30）**。视觉阈值 + AC-PERF 数据齐备，
+### 阶段 1 完成状态（2026-07-30）
+
+1. **v7 真机基准 + 阈值冻结** ✅ 完成。三项自动指标阈值写入
+   `docs/algorithm-v1.md` §A.13（基于 20 张固定图集实测均值 + 15-20% 留白）；
+   AC-PERF 30 轮实测 median 1.022 s / p95 1.023 s（v8 APK, 1920×1080 RGB,
+   `{2,5,10,20}` 数据；`{2,5,15,30}` 30 轮预估 ~1.53 s，仍有 34× 余量）。
+2. **UI 打通编码/解码屏** ✅ 完成（详见阶段 2a）。
+3. **V1 冻结签字** ✅ 完成（2026-07-30）。视觉阈值 + AC-PERF 数据齐备，
    `algorithm_v1_draft.json` 已改名 `algorithm_v1.json`（status: frozen），
    `docs/algorithm-v1.md` 已翻 `FROZEN` 状态，§A.13 冻结阈值入档，
    [artifacts/visual_review/scorecard.md](artifacts/visual_review/scorecard.md)
    由 apeiria-network 单人视觉验收签署。
+4. **轮次集二次修订** ✅ 完成（2026-07-29 → 2026-07-30 冻结）：
+   `{1, 5, 10, 20}` → `{2, 5, 10, 20}` → `{2, 5, 15, 30}`。原因：初次冻结后
+   视觉验收显示 10 轮档在 5 张内容丰富图上仍能勉强辨认轮廓，加大主档/最高档
+   预算 +50% 后 15 轮 16/20 通过、30 轮 20/20 完美通过。
 
 ### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶�� 1 并行）
 
@@ -297,6 +305,21 @@ ruff 9 errors 全部 baseline 遗留。
 - **【联合】PC 手动 UI 走查**：`python main.py` 启动后依次点击"打码" →
   "选择图片" → 挑一张 PNG/JPEG → 调轮数/分享代码 → 开始 → 等结果 →
   返回首页 → "恢复" 同流程；如遇布局、字体、卡顿或异常反馈给我。
-- **【联合】v8 真机 UI 走查**：PC 走通后我出 v8 APK，你在真机重跑一次
-  同流程（Android 侧使用 Kivy FileChooser 是过渡方案，Photo Picker /
-  MediaStore 走阶段 2b）。
+- **【联合】v8 真机 UI 走查** ✅ 完成（2026-07-30）：v8 APK 在真机跑通完整流程 ——
+  Photo Picker（Intent.ACTION_GET_CONTENT）拉起系统相册、选图 → 加密链路
+  跑通（1920×1080 5 轮 ~0.26s、30 轮预估 ~1.53s，AC-PERF 34× 余量）。
+  Android 侧 Kivy FileChooser 已被 Photo Picker 替代（阶段 2b 计划提前实现，
+  见 [reversible_mosaic/ui/file_picker.py](reversible_mosaic/ui/file_picker.py)：
+  try 系统 Intent，异常自动 fallback 到 Kivy FileChooser）。
+- MediaStore 保存 + 系统分享 + 查看结果按钮仍待阶段 2b。
+
+### 阶段 2b – 待办
+
+1. **MediaStore 保存**：`RM_ENC_yyyyMMdd_HHmmss_R{n}.png` 落入系统相册
+   （FR-SAVE-001 / AC-012），当前仅写到 `{user_data_dir}/outputs/`。
+2. **系统分享**：Intent.ACTION_SEND 走已保存 MediaStore URI，授临时只读权限
+   （FR-SAVE-004）。
+3. **结果页三按钮**：查看 / 保存 / 分享（当前只有 "复制分享代码" + "再来一次"）。
+4. **敏感剪贴板**：Android 13+ `ClipDescription.EXTRA_IS_SENSITIVE` 标记
+   分享代码复制（FR-ENC-007）。
+5. **未保存二次确认**：结果页离开时提示（FR-SAVE-007）。

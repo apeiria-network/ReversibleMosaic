@@ -191,8 +191,9 @@
 
 ## 算法（`reversible_mosaic/core/algorithm/`）
 
-V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是有效的；冻结后
-（`docs/algorithm-v1.md` 标 "frozen"）只能新增 V2，不能修改 V1。
+V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**。
+`docs/algorithm-v1.md` 已翻 `FROZEN`，`tests/vectors/algorithm_v1.json`
+`status: frozen`。V1 一个字节都不能改；行为变化必须新增 V2。
 
 ### [`algorithm/contracts.py`](../reversible_mosaic/core/algorithm/contracts.py)
 - **作用**：算法边界契约 —— 类型、模式、轮数集合、异常类、像素校验。
@@ -597,14 +598,14 @@ Intent、剪贴板）在阶段 2 才写。
 - [`test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)：
   Hypothesis 生成 `(w, h, mode, seed, rounds)`，断言
   `decrypt(encrypt(x)) == x`、确定性、非平凡输出（≥2 pixel + ≥3 unique RGB）。
-  2/5 轮走 80 例，10/20 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
+  2/5 轮走 80 例，15/30 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
 
 ### [`tests/vectors/`](../tests/vectors/)
 - [`generate_v1_vectors.py`](../tests/vectors/generate_v1_vectors.py)：合成
   固定图集，跑 2/5/15/30 轮，把 encrypt 输出的 hex/SHA-256 写入
   `algorithm_v1.json`（V1 冻结后正式化，2026-07-30；供跨平台比对）。
 - [`test_v1_vectors.py`](../tests/vectors/test_v1_vectors.py)：读取
-  草案 JSON，断言 `reference_v1` **和** registry 当前后端（可能是 Cython）
+  冻结 JSON，断言 `reference_v1` **和** registry 当前后端（可能是 Cython）
   的输出与文件一致。这是"防意外修改 V1 字节输出"的兜底。
 - **改动指引**：改 `reference_v1.py` 或 `v1.pyx` 后必须重跑
   `generate_v1_vectors.py` 更新固定向量；否则 `test_v1_vectors.py` 会红。
@@ -855,7 +856,8 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 
 ## 计划与文档（`docs/`）
 
-- [`docs/algorithm-v1.md`](algorithm-v1.md)：V1 算法规范（冻结前的草稿）。
+- [`docs/algorithm-v1.md`](algorithm-v1.md)：V1 算法规范（**FROZEN 2026-07-30**，
+  rounds {2, 5, 15, 30}, R=max(8, min(W,H)//32)）。
 - [`docs/build-android.md`](build-android.md)：Android 构建说明（p4a
   recipe、NDK 布局、镜像用法）。
 - [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据；阶段 3 冻结
@@ -909,7 +911,7 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 - **Cancel token**：`threading.Event` 包装的协作取消标志；只在算法轮之间
   检查，不进 Cython nogil 段。
 - **Gateway**：平台适配 Protocol（Android / desktop 各一份实现）。
-- **Fixed vector**：`tests/vectors/vectors.json` 里的算法输出黄金参考；
+- **Fixed vector**：`tests/vectors/algorithm_v1.json` 里的算法输出黄金参考；
   跨平台跨版本比对的锚点。
 - **【联合】节点**：脚本自动化 + 用户手动一步的合作点（例如真机侧载 APK）。
 - **【人工协助】节点**：需要用户在真实设备/视觉判断/发布身份上做主的节点。
