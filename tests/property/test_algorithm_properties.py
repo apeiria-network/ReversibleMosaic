@@ -41,7 +41,7 @@ def test_v1_is_a_bijection(
     height=st.integers(1, 8),
     channels=st.sampled_from([3, 4]),
     seed=st.integers(0, 9_999_999_999),
-    rounds=st.sampled_from([10, 20]),
+    rounds=st.sampled_from([15, 30]),
     data=st.data(),
 )
 def test_v1_high_round_bijection(
@@ -69,7 +69,7 @@ def test_v1_high_round_bijection(
     height=st.integers(1, 12),
     channels=st.sampled_from([3, 4]),
     seed=st.integers(0, 9_999_999_999),
-    rounds=st.sampled_from([2, 5, 10, 20]),
+    rounds=st.sampled_from([2, 5, 15, 30]),
     data=st.data(),
 )
 def test_v1_encrypt_is_deterministic(
@@ -98,7 +98,7 @@ def test_v1_encrypt_is_deterministic(
     width=st.integers(2, 8),
     height=st.integers(2, 8),
     seed=st.integers(0, 9_999_999_999),
-    rounds=st.sampled_from([2, 5, 10, 20]),
+    rounds=st.sampled_from([2, 5, 15, 30]),
     data=st.data(),
 )
 def test_v1_alpha_channel_unchanged_after_bijection(
@@ -136,7 +136,7 @@ def test_v1_alpha_channel_unchanged_after_bijection(
     width=st.integers(1, 6),
     height=st.integers(1, 6),
     channels=st.sampled_from([3, 4]),
-    rounds=st.sampled_from([2, 5, 10, 20]),
+    rounds=st.sampled_from([2, 5, 15, 30]),
     data=st.data(),
 )
 def test_v1_nontrivial_output_for_random_seeds(

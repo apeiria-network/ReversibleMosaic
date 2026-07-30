@@ -9,7 +9,7 @@ Usage:
 For each image in ``--sources`` (RGB/RGBA PNG or plain RGB JPEG) the script:
 
 1. Normalises the input (EXIF Orientation, mode conversion, resource limits).
-2. Runs V1 encryption at rounds 2, 5, 10, 20 with a canonical seed set
+2. Runs V1 encryption at rounds 2, 5, 15, 30 with a canonical seed set
    (``500_000`` and two secondary seeds so section 12.3.6 diverse-seed check
    has something to look at).
 3. Saves each variant as an 8-bit RGB/RGBA PNG next to a JSON metrics file.
@@ -44,7 +44,7 @@ CANONICAL_SEEDS: tuple[tuple[str, int], ...] = (
     ("secondary_a", 314_159),
     ("secondary_b", 987_654_321),
 )
-ROUNDS: tuple[int, ...] = (2, 5, 10, 20)
+ROUNDS: tuple[int, ...] = (2, 5, 15, 30)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,22 +153,41 @@ def _render_scorecard(records: list[SourceRecord], destination: Path) -> None:
     Scorecard only lists the default share code (500000); multi-seed metrics
     stay in ``metrics.json`` for the §12.3.6 diverse-seed check, which is a
     numeric comparison, not a human judgement.
+
+    Round-differentiated criteria (2026-07-29 revised by product owner):
+    each round has a distinct target — 2 hides details, 5 is hard to
+    recognize, 15 and 30 must be unrecognizable. The scorecard makes each
+    row explicit about which bar it is measured against.
     """
     default_seed_label, default_seed_value = CANONICAL_SEEDS[0]
+    round_criteria: dict[int, tuple[str, str]] = {
+        2: ("细节已隐去", "纹理 / 小文字 / 小物件 / 装饰细节看不见；主体轮廓允许仍可识别"),
+        5: ("较难辨认", "主体较难辨认；需仔细看才能识别；文字不可读；人脸细节丢失"),
+        15: ("无法辨认", "无法直接辨认主体 / 文字 / 人脸"),
+        30: ("无法辨认", "无法直接辨认主体 / 文字 / 人脸"),
+    }
     header = (
         "# V1 视觉验收记分表 (单人 MVP 变体)\n\n"
         "> **验收协议**：需求档 §12.3 修订 2026-07-29 单人偏差 —— 由本记分表\n"
         "> 单一检查者 (通常为产品负责人) 独立打分 + `metrics.json` 三项自动指标\n"
         "> 双重校验。原 §12.3.4-5 的 3 名检查者判定条款仅在公开发布或商业推出\n"
         "> 前须重新组织时恢复。\n\n"
-        "**你要做什么**：对每张原图，看 4 张打码后的输出图，独立判断\n"
-        "**是否难以直接辨认主体 / 文字 / 人脸**。\n\n"
-        "**评分标记**：\n"
-        "- `✓` = 主要内容 (人脸、文字、场景主体) 已难以直接辨认 (通过)。\n"
-        "- `✗` = 主要内容仍可直接辨认 (失败；需在备注写清哪部分残留)。\n"
-        "- `?` = 不确定 / 内容边界感 (记为不通过，重跑此张)。\n\n"
-        f"**分享代码固定为 `{default_seed_value}` (default)**；\n"
-        "其他 seed 变体只影响 metrics.json 里的多 seed 差异指标。\n\n"
+        "## 评分标准 (分轮次差异化, 2026-07-29 修订)\n\n"
+        "**每一轮有不同的通过门槛**，反映 `docs/algorithm-v1.md` §A.6 的定位。\n"
+        "对每张原图看 4 张打码输出，按当前轮次的目标独立判定：\n\n"
+        "| 轮数 | 目标定位 | 通过 (✓) 判定 |\n"
+        "|---|---|---|\n"
+        f"|  2 | Sanity check — 遮盖细节 | {round_criteria[2][1]} |\n"
+        f"|  5 | MVP 默认 — 较难辨认 | {round_criteria[5][1]} |\n"
+        f"| 15 | 主档 — 无法辨认 | {round_criteria[15][1]} |\n"
+        f"| 30 | 最高档 — 无法辨认 | {round_criteria[30][1]} |\n\n"
+        "**评分标记**（2026-07-29 由检查者定制的 0/1/2/3 数字体系）：\n"
+        "- `2` = 满足**当前轮次**的通过判定 (通过)。\n"
+        "- `0` = 未满足 (失败；请在备注写清残留了哪部分)。\n"
+        "- `1` = 不确定 / 边界感 (记为不通过)。\n"
+        "- `3` = 模糊度过高，无法辨认 (记为通过)。\n\n"
+        f"**分享代码固定为 `{default_seed_value}` (default)**；其他 seed 变体只影响\n"
+        "`metrics.json` 里的多 seed 差异指标。\n\n"
         "---\n\n"
     )
     lines: list[str] = [header]
@@ -180,29 +199,31 @@ def _render_scorecard(records: list[SourceRecord], destination: Path) -> None:
         lines.append(
             f"- 打码结果目录: `{record.identifier}/rounds_XX_seed_{default_seed_label}.png`\n"
         )
-        lines.append("\n| 轮数 | 打码文件 | 判定 | 备注 |\n")
-        lines.append("|---|---|:-:|---|\n")
+        lines.append("\n| 轮数 | 目标 | 打码文件 | 判定 | 备注 |\n")
+        lines.append("|---|---|---|:-:|---|\n")
         for rounds in ROUNDS:
             output_name = f"rounds_{rounds:02d}_seed_{default_seed_label}.png"
-            lines.append(f"| {rounds:>2} | `{output_name}` |  |  |\n")
+            target = round_criteria[rounds][0]
+            lines.append(f"| {rounds:>2} | {target} | `{output_name}` |  |  |\n")
         lines.append("\n")
     lines.append(
         "---\n\n"
         "## 汇总\n\n"
-        "填完后统计一下：\n\n"
-        "- **通过判定 (`✓`)**：____ / 80\n"
-        "- **失败判定 (`✗` 或 `?`)**：____ / 80\n"
-        "- **每张至少一轮通过**：____ / 20\n"
-        "- **每张 2/5/10/20 全通过**：____ / 20\n\n"
-        "**发布决策规则**：\n\n"
-        "1. 5/10/20 轮**每张至少 15/20 张通过** (即失败 ≤ 5 张) → 视觉隐藏能力\n"
-        "   达标。\n"
-        "2. 2 轮未通过不影响发布 (2 轮定位为 sanity check)，但需在报告中\n"
-        "   注明比例。\n"
-        "3. 若某分享代码在 ≥3 张内容丰富图上都失败 → §12.3.6 系统性退化，\n"
-        "   V1 不得发布 (需增派)。\n"
-        "4. `metrics.json` 三项自动指标必须同时通过冻结阈值 (见\n"
-        "   `docs/algorithm-v1.md` 附录)。\n\n"
+        "填完后按**分轮次**统计（每一档目标不同，不再汇总成单一分子）：\n\n"
+        "- **2 轮 (`细节已隐去`)**：____ / 20 通过\n"
+        "- **5 轮 (`较难辨认`)**：____ / 20 通过\n"
+        "- **15 轮 (`无法辨认`)**：____ / 20 通过\n"
+        "- **30 轮 (`无法辨认`)**：____ / 20 通过\n\n"
+        "**发布决策规则**（2026-07-29 修订，轮次集 {2, 5, 15, 30}）：\n\n"
+        "1. **2 轮 ≥ 15/20 通过** → sanity check 层达标。\n"
+        "2. **5 轮 ≥ 15/20 通过** → MVP 默认档达标（发布阻断项）。\n"
+        "3. **15 轮 ≥ 16/20 通过** → 主档达标（发布阻断项，2026-07-29 定稿\n"
+        "   实测 16/20；p16 类小尺寸图靠 30 轮兜底）。\n"
+        "4. **30 轮 ≥ 20/20 通过** → 最高档达标（严格 20/20 完美要求）。\n"
+        "5. 若同一分享代码在 ≥3 张内容丰富图上都失败 → §12.3.6 系统性退化，\n"
+        "   V1 不得发布。\n"
+        "6. `metrics.json` 三项自动指标必须同时通过冻结阈值（见\n"
+        "   `docs/algorithm-v1.md` §A.13 附录，冻结时敲定）。\n\n"
         "**检查者签署**：\n\n"
         "- 姓名 / 花名：____________\n"
         "- 日期：____________\n"

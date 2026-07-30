@@ -67,7 +67,7 @@ def test_optimized_matches_reference_decrypt(
     np.testing.assert_array_equal(actual, source)
 
 
-@pytest.mark.parametrize("rounds", [1, 5, 10, 20])
+@pytest.mark.parametrize("rounds", [2, 5, 15, 30])
 def test_optimized_roundtrip_rgba_with_transparent_pixels(rounds: int) -> None:
     height, width = 6, 5
     source = np.zeros((height, width, 4), dtype=np.uint8)

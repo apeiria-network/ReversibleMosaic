@@ -199,7 +199,7 @@ V1 参考实现 + Cython 优化候选。**冻结前**任何逐字节改动都是
 - **导出**：
   - 类型：`PixelMode = Literal["RGB", "RGBA"]`、
     `PixelArray = npt.NDArray[np.uint8]`。
-  - 常量：`VALID_ROUNDS = frozenset({2, 5, 10, 20})`（2026-07-29 修订，
+  - 常量：`VALID_ROUNDS = frozenset({2, 5, 15, 30})`（2026-07-29 二次修订，
     原 `{1, 5, 10, 20}`；1 轮位移 <3% 对真实照片视觉不到位，改为 2 起）。
   - 异常：`AlgorithmError(ValueError)`、`CancellationRequested(RuntimeError)`。
   - Protocol：`CancellationProbe`（`__call__() -> bool`）。
@@ -450,7 +450,7 @@ Intent、剪贴板）在阶段 2 才写。
 - **作用**：不依赖 Kivy 的表单/进度/结果 view model。屏在主线程持有实例，
   worker 通过 `TaskCoordinator` 回调更新。这样 view model 可以被
   pytest 直接测。
-- **常量**：`VALID_ROUNDS = (2, 5, 10, 20)`、`DEFAULT_ROUNDS = 5`。
+- **常量**：`VALID_ROUNDS = (2, 5, 15, 30)`、`DEFAULT_ROUNDS = 5`。
 - **导出**：
   - `TaskFormState(operation, input_path=None, share_code="", rounds=5, algorithm_version=None)`：
     - `parsed_share_code() -> str | None` （抛 `ShareCodeError`）。
@@ -601,8 +601,8 @@ Intent、剪贴板）在阶段 2 才写。
 
 ### [`tests/vectors/`](../tests/vectors/)
 - [`generate_v1_vectors.py`](../tests/vectors/generate_v1_vectors.py)：合成
-  固定图集，跑 2/5/10/20 轮，把 encrypt 输出的 hex/SHA-256 写入
-  `algorithm_v1_draft.json`（冻结后改名 `vectors.json`；供跨平台比对）。
+  固定图集，跑 2/5/15/30 轮，把 encrypt 输出的 hex/SHA-256 写入
+  `algorithm_v1.json`（V1 冻结后正式化，2026-07-30；供跨平台比对）。
 - [`test_v1_vectors.py`](../tests/vectors/test_v1_vectors.py)：读取
   草案 JSON，断言 `reference_v1` **和** registry 当前后端（可能是 Cython）
   的输出与文件一致。这是"防意外修改 V1 字节输出"的兜底。
@@ -622,7 +622,7 @@ Intent、剪贴板）在阶段 2 才写。
 
 #### [`scripts/generate_visual_review_set.py`](../scripts/generate_visual_review_set.py)
 - **作用**：阶段 1 引入。读 `artifacts/visual_review_sources/` 下的固定图集，
-  对每张跑 3 个种子 × 4 个轮数（**2/5/10/20**，2026-07-29 修订），走
+  对每张跑 3 个种子 × 4 个轮数（**2/5/15/30**，2026-07-29 二次修订），走
   `registry.get(1)` 加密（因此会自动使用当前活跃后端 —— Cython 或 reference），
   产出结构化输出：
   - `artifacts/visual_review/<image_id>/source.png` —— 原图拷贝
@@ -641,7 +641,7 @@ Intent、剪贴板）在阶段 2 才写。
   分钟出所有 240 张 PNG。
 - **改动指引**：
   - 加新种子：改 `CANONICAL_SEEDS` 顶层常量。
-  - 加新轮数：改 `ROUNDS` 顶层常量 —— 但只能是 §7.3 `VALID_ROUNDS` = {2, 5, 10, 20}。
+  - 加新轮数：改 `ROUNDS` 顶层常量 —— 但只能是 §7.3 `VALID_ROUNDS` = {2, 5, 15, 30}。
   - `scorecard.md` 模板文字属于用户输出，允许全宽中文标点（file-level
     `# ruff: noqa: RUF001`）。单人 MVP 变体已按 §12.3 偏差改造；若恢复
     3 人验收版本，参考 git history 里 stage2a 之前的模板。
@@ -902,7 +902,7 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 - **P0**：本轮 MVP 支持的输入子集（8-bit RGB/RGBA PNG，8-bit RGB JPEG）。
 - **Share code**：用户手动记的分享代码。默认 `500000`；1–10 位 ASCII 十进
   制。空字符串 = 使用默认。
-- **Round**：算法轮数。允许 `{2, 5, 10, 20}`；默认 5。（2026-07-29 修订，
+- **Round**：算法轮数。允许 `{2, 5, 15, 30}`；默认 5。（2026-07-29 二次修订，
   原 `{1, 5, 10, 20}`）
 - **Stage**：pipeline 的可观察阶段 —— `normalize` / `transform` / `write`。
 - **State**：任务状态机 10 态；由 `domain/task_state.py` 管控迁移。

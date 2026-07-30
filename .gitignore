@@ -21,4 +21,12 @@ bin/
 local.properties
 .env
 .cache/
-artifacts/
+artifacts/*
+!artifacts/visual_review/
+!artifacts/visual_review_sources/
+artifacts/visual_review/*
+artifacts/visual_review_sources/*
+# V1 冻结审计证据入库（scorecard 签署单 + metrics.json 自动指标 + sources.csv 图集清单）
+!artifacts/visual_review/scorecard.md
+!artifacts/visual_review/metrics.json
+!artifacts/visual_review_sources/sources.csv

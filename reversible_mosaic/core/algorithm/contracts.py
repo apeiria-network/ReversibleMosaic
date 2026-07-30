@@ -10,7 +10,7 @@ import numpy.typing as npt
 
 PixelMode = Literal["RGB", "RGBA"]
 PixelArray = npt.NDArray[np.uint8]
-VALID_ROUNDS = frozenset({2, 5, 10, 20})
+VALID_ROUNDS = frozenset({2, 5, 15, 30})
 
 
 class AlgorithmError(ValueError):
