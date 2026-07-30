@@ -27,7 +27,17 @@ CLANG="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android
 
 SRC="$WORKSPACE/reversible_mosaic/core/algorithm/v1.pyx"
 GEN_C="$WORKSPACE/reversible_mosaic/core/algorithm/v1.c"
-OUT_SO="$WORKSPACE/reversible_mosaic/core/algorithm/v1.cpython-314-aarch64-linux-android.so"
+# p4a's Python 3.14 uses a BARE `.so` EXT_SUFFIX on Android (compare with
+# numpy's `_multiarray_umath.so` / PIL's `_imaging.so` in the built dist).
+# A fully-tagged name like `v1.cpython-314-aarch64-linux-android.so` gets
+# ignored by the runtime importer → ModuleNotFoundError → optimized_v1
+# fallback → reference_v1 (~10x slower). Learned from v16 self-test panel
+# reporting `No module named 'reversible_mosaic.core.algorithm.v1'`.
+OUT_SO="$WORKSPACE/reversible_mosaic/core/algorithm/v1.so"
+
+# Wipe any stale tagged .so from prior builds so the tar only carries the
+# bare-suffix module.
+rm -f "$WORKSPACE/reversible_mosaic/core/algorithm/"v1.cpython-*.so
 
 if [ ! -x "$CYTHON_BIN" ]; then
     echo "[cython] no cython in $BUILD_VENV; installing Cython 3.x..."
