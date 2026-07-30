@@ -129,7 +129,7 @@ def _probe_reference_v1() -> str:
     # alpha stays 0 for every pixel — this is the transparent-RGB preservation case.
 
     lines: list[str] = []
-    for rounds in (2, 5, 20):
+    for rounds in (2, 5, 30):
         encrypted = encrypt(original, seed=500000, rounds=rounds)
         restored = decrypt(encrypted, seed=500000, rounds=rounds)
         if not np.array_equal(original, restored):
@@ -149,16 +149,23 @@ def _probe_v1_cython() -> str:
 
     import numpy as np
 
-    pixels = np.zeros((16, 4), dtype=np.uint8)
-    pixels[:, 0] = 200
-    pixels[:, 1] = 100
-    pixels[:, 2] = 50
+    # 4x4 RGBA test pattern (H x W x C = 4 x 4 x 4 uint8, C-contiguous)
+    pixels = np.zeros((4, 4, 4), dtype=np.uint8)
+    pixels[..., 0] = np.arange(16, dtype=np.uint8).reshape(4, 4) * 15
+    pixels[..., 1] = 100
+    pixels[..., 2] = 50
+    pixels[..., 3] = 255
     backup = pixels.copy()
-    v1_cython.lift_forward(pixels, 0xDEADBEEFCAFEBABE)
-    v1_cython.lift_inverse(pixels, 0xDEADBEEFCAFEBABE)
+
+    # V1 定稿: neighborhood_swap_forward/inverse (radius = min(4,4)//32 = 0
+    # would be floored to 8 by domain layer, but Cython takes radius directly;
+    # use 2 here so we get actual swaps on a 4x4 image).
+    key = 0xDEADBEEFCAFEBABE
+    v1_cython.neighborhood_swap_forward(pixels, key, 2)
+    v1_cython.neighborhood_swap_inverse(pixels, key, 2)
     if not np.array_equal(pixels, backup):
-        raise AssertionError("lift_forward+lift_inverse 未复原")
-    return "Cython 模块加载 OK; lift_forward/lift_inverse 复原一致"
+        raise AssertionError("neighborhood_swap forward+inverse 未复原")
+    return "Cython 模块加载 OK; neighborhood_swap forward/inverse 复原一致"
 
 
 SYNC_PROBES: list[tuple[str, Callable[[], str]]] = [
@@ -211,7 +218,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             root.add_widget(btn)
 
         perf_btn = Button(
-            text="性能扫描 (1920x1080 RGB, 2/5/10/20 轮, 5 次中位数)",
+            text="性能扫描 (1920x1080 RGB, 2/5/15/30 轮, 5 次中位数)",
             size_hint_y=None,
             height=dp(52),
         )
@@ -334,7 +341,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         original = rng.integers(0, 256, size=(height, width, 3), dtype=np.uint8)
 
         rows: list[dict[str, Any]] = []
-        for rounds in (2, 5, 10, 20):
+        for rounds in (2, 5, 15, 30):
             if self._perf_cancel.is_set():
                 break
             durations: list[float] = []

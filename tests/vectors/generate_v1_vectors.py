@@ -13,8 +13,8 @@ from reversible_mosaic.core.algorithm.reference_v1 import decrypt, encrypt
 _CASES = (
     ("rgb_1x1_r2_seed0", 1, 1, 3, 0, 2),
     ("rgba_3x2_r5_seed500000", 3, 2, 4, 500000, 5),
-    ("rgb_5x3_r10_seed9999999999", 5, 3, 3, 9_999_999_999, 10),
-    ("rgba_1x7_r20_seed123", 1, 7, 4, 123, 20),
+    ("rgb_5x3_r15_seed9999999999", 5, 3, 3, 9_999_999_999, 15),
+    ("rgba_1x7_r30_seed123", 1, 7, 4, 123, 30),
 )
 
 
@@ -48,11 +48,11 @@ def generate_vectors() -> dict[str, object]:
                 "encrypted_sha256": _digest(encrypted.tobytes()),
             }
         )
-    return {"algorithm_version": 1, "status": "draft", "vectors": vectors}
+    return {"algorithm_version": 1, "status": "frozen", "vectors": vectors}
 
 
 def main() -> None:
-    destination = Path(__file__).with_name("algorithm_v1_draft.json")
+    destination = Path(__file__).with_name("algorithm_v1.json")
     destination.write_text(
         json.dumps(generate_vectors(), indent=2, ensure_ascii=True) + "\n", encoding="ascii"
     )

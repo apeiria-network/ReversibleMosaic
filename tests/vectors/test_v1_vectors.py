@@ -10,14 +10,14 @@ from reversible_mosaic.core.algorithm.registry import get
 
 
 def _load_vectors() -> dict:
-    path = Path(__file__).with_name("algorithm_v1_draft.json")
+    path = Path(__file__).with_name("algorithm_v1.json")
     return json.loads(path.read_text(encoding="ascii"))
 
 
-def test_draft_fixed_vectors() -> None:
+def test_frozen_fixed_vectors() -> None:
     document = _load_vectors()
     assert document["algorithm_version"] == 1
-    assert document["status"] == "draft"
+    assert document["status"] == "frozen"
     for vector in document["vectors"]:
         channels = 3 if vector["mode"] == "RGB" else 4
         source = np.frombuffer(bytes.fromhex(vector["input_hex"]), dtype=np.uint8).reshape(
@@ -31,9 +31,9 @@ def test_draft_fixed_vectors() -> None:
         )
 
 
-def test_registered_v1_matches_draft_fixed_vectors() -> None:
+def test_registered_v1_matches_frozen_fixed_vectors() -> None:
     """The currently-registered V1 backend (reference or Cython) must produce
-    the same bytes as the frozen draft vectors."""
+    the same bytes as the frozen vectors."""
 
     document = _load_vectors()
     descriptor = get(1)

@@ -211,7 +211,7 @@
    下 reference vs Cython 逐字节比对；Windows PC 上 21 个用例正确跳过。
    [tests/vectors/test_v1_vectors.py](tests/vectors/test_v1_vectors.py) 增加
    `test_registered_v1_matches_draft_fixed_vectors` — 断言当前 registry 里
-   V1 的字节输出与 `algorithm_v1_draft.json` 完全一致。
+   V1 的字节输出与 `algorithm_v1.json` 完全一致。
 3. **Property 测试加强**：
    [tests/property/test_algorithm_properties.py](tests/property/test_algorithm_properties.py)
    从单个 `test_v1_is_a_bijection`（80 例，1/5 轮）扩到 5 个性质：
@@ -257,9 +257,11 @@
    / `ProgressScreen` / `ResultScreen`（走 `TaskCoordinator` +
    `ProgressReporter`）。跨越阶段 1/2 边界；MVP 视觉可用之后再收
    `SelfTestScreen` 到"设置 → 诊断"。
-3. **V1 冻结签字**：视觉阈值 + AC-PERF 数据齐备后，把
-   `algorithm_v1_draft.json` 改名 `vectors.json`，`docs/algorithm-v1.md`
-   翻 `frozen` 状态，附录列冻结日期和阈值表。
+3. **V1 冻结签字**：**已完成（2026-07-30）**。视觉阈值 + AC-PERF 数据齐备，
+   `algorithm_v1_draft.json` 已改名 `algorithm_v1.json`（status: frozen），
+   `docs/algorithm-v1.md` 已翻 `FROZEN` 状态，§A.13 冻结阈值入档，
+   [artifacts/visual_review/scorecard.md](artifacts/visual_review/scorecard.md)
+   由 apeiria-network 单人视觉验收签署。
 
 ### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶�� 1 并行）
 

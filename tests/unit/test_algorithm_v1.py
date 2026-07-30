@@ -9,7 +9,7 @@ from reversible_mosaic.core.algorithm.reference_v1 import decrypt, encrypt
 
 @pytest.mark.parametrize("channels", [3, 4])
 @pytest.mark.parametrize("shape", [(1, 1), (1, 7), (5, 1), (5, 7)])
-@pytest.mark.parametrize("rounds", [2, 5, 10, 20])
+@pytest.mark.parametrize("rounds", [2, 5, 15, 30])
 def test_round_trip(channels: int, shape: tuple[int, int], rounds: int) -> None:
     height, width = shape
     source = np.arange(height * width * channels, dtype=np.uint8).reshape(
@@ -22,7 +22,7 @@ def test_round_trip(channels: int, shape: tuple[int, int], rounds: int) -> None:
     np.testing.assert_array_equal(source, original)
 
 
-@pytest.mark.parametrize("rounds", [2, 5, 10, 20])
+@pytest.mark.parametrize("rounds", [2, 5, 15, 30])
 def test_rgba_alpha_values_only_move_with_pixels(rounds: int) -> None:
     source = np.zeros((3, 5, 4), dtype=np.uint8)
     source.reshape(-1, 4)[:, :3] = np.arange(45, dtype=np.uint8).reshape(-1, 3)
