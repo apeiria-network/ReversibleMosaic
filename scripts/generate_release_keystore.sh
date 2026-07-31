@@ -163,10 +163,12 @@ echo "==========================================================="
 echo "完成"
 echo "==========================================================="
 echo
-echo "现在你可以跑 Release 构建："
-echo "  wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release"
+echo "现在你可以跑 Release 构建（Stage 3 Block 3 起两参数都强制）："
+echo "  wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v18"
 echo
-echo "构建产物：~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk"
+echo "构建产物（脚本自动加版本后缀 + 拷回 D 盘 + apksigner 签名）："
+echo "  ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk"
+echo "  /mnt/d/python/python_projects/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk"
 echo
 echo "⚠️  关键提醒 —— keystore 备份"
 echo "  keystore 当前在项目目录内：$KEYSTORE_FILE"
