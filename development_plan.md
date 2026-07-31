@@ -463,7 +463,7 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
 3. **docs/release-notes.md 新增**：v0.1.0 MVP 内部签名 Release 的发行说明。
    § 1 版本身份与限制（applicationId 探针占位 + 内部自签 keystore + 五步走
    发布身份切换清单）；§ 2 已完成核心功能；§ 3 已知限制/非目标；§ 4 已知
-   问题；§ 5 版本历史（Stage 0-3 全流程 + v16 APK SHA-256 占位表格）；
+   问题；§ 5 版本历史（Stage 0-3 全流程 + v17 APK SHA-256 占位表格）；
    **§ 6 第三方组件与许可清单**（APK 运行时 14 项 + PC dev 环境 + 构建
    工具三大类，包含 CPython/Kivy/SDL2/PyJNIus/NumPy/Pillow/Cython/wqy-microhei
    等及其许可协议 PSF-2.0/MIT/Zlib/BSD-3/HPND/Apache-2.0 等）；§ 7 用户教程
@@ -479,5 +479,83 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
 - pytest / ruff / mypy 无回归（Block 2 未改任何代码）。
 
 **Block 2 尚待用户参与**：无。全部文档层面工作，PC 端完成。
+
+#### Block 3 进行情况（2026-07-30）
+
+**用户决策**（Block 3 起手前）：
+
+- **keystore 生成**：WSL 本机 keytool 生成（我写脚本，用户跑一次）。
+- **AC-PERF 真机基准**：APK 自检屏内置 1920×1080 现算图 × {2,5,15,30} × 5 次
+  encrypt-only 计时，结果落 `stage3_bench.json` 于 App 私有目录，用户 adb pull
+  回主机。
+
+**已完成（自动）**：
+
+1. **`scripts/generate_release_keystore.sh` 新增**：交互式 keytool 封装。
+   - 检查 keytool 存在（OpenJDK 17 前置）。
+   - 已有 keystore 时提示不要覆盖（防止误删导致老 APK 无法升级）。
+   - `keytool -genkeypair` RSA-2048，validity 10000 天，alias `reversiblemosaic`，
+     默认路径 `~/keys/reversiblemosaic.jks`（用户可 `KEYSTORE_FILE=` 覆盖）。
+   - 交互式索取 CN/OU/O/L/ST/C 组装 DN；口令由 keytool 直接提示（不经脚本）。
+   - keytool 完成后再次索取口令写入 `buildozer.spec.local`（`chmod 600`），
+     buildozer 通过 `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd`
+     四个 key 读取。
+   - 结尾清单叮嘱：备份 keystore 到离线位置、不要 git add spec.local、正式
+     发布前完成身份切换五步。
+2. **`.gitignore` 扩展**：加 `buildozer.spec.local`。原有 `*.jks` / `*.keystore`
+   保持不动。
+3. **`scripts/wsl_build_android.sh` 加 release 分支**：接受 `debug|release`
+   位置参数，release 时前置检查 `buildozer.spec.local` 存在（不存在则 exit 3
+   引导用户先跑生成脚本），最终 `exec buildozer android debug|release`。
+   仍然复用 rsync 增量同步、p4a hard-link 缓存、`ghfast.top` git 镜像与
+   Cython 交叉编译四大预处理步骤。
+4. **`reversible_mosaic/ui/self_test.py` 性能扫描升级**：
+   - 顶部 docstring 从"Stage 0 diagnostic screen"扩到"Stage 0 diagnostic +
+     Stage 3 AC-PERF benchmark"；`# ruff: noqa: RUF001, RUF002` 允许中文标点
+     用于 UI 文案。
+   - 新增 `_AC_PERF_TARGETS_SECONDS` 表（2/5/15/30 → 6/9/27/52 秒，
+     §10.2 的 15/30 是需求原值；2/5 是保守线性外推给出 pass/fail 判定）。
+   - 性能按钮 label 改为"Stage 3 AC-PERF 基准 (1920x1080 encrypt-only,
+     2/5/15/30 轮 x 5 次)"。
+   - `_run_perf_scan` 重构：
+     - 每档先跑一次 encrypt+decrypt round-trip sanity（不计入 timing）；
+       不复原直接抛 AssertionError 拒绝出坏数据。
+     - 计时循环只 encrypt（AC-PERF §10.2 "n 轮端到端处理至预览"，不含 decrypt）。
+     - 每档 5 次 median = 排序后 index 2 = 第三小；P95 = max（5 样本近似）。
+     - 每档记录 `ac_perf_target_s` + `ac_perf_verdict` (PASS/FAIL)。
+     - Summary 加 `timing_scope`、`sample_seed`、`ac_perf_overall` 字段。
+     - 输出改到 `stage3_bench.json`（旧 `stage0_perf.json` 弃用）。
+   - Finish 回调打印 verdict + 总判定行。
+5. **`docs/build-android.md` 扩展 §5 "Release 签名执行"**：一次性 keystore 生成
+   → Release 构建 → 签名 fingerprint 验证 → 装机与 AC-PERF 基准 4 步流程；
+   `adb shell run-as ... cat` 从 App 私有目录取 JSON 的具体命令。
+
+**验证情况**：
+- `pytest -q`：**250 passed / 21 skipped**（Block 3 未改任何 test 代码，
+  self_test 的 5 case probe 单元测试仍然全绿）。
+- `ruff check`：全项目 9 baseline 违规，Block 3 **0 新增**（self_test.py
+  加 file-level noqa 化解 18 处中文标点触发的 RUF001/RUF002）。
+- `mypy`：全项目 23 baseline 违规，Block 3 **0 新增**。
+
+**Block 3 尚待用户参与**（【联合】节点）：
+
+1. **【联合】生成 keystore**：用户在 PowerShell 里跑
+   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/generate_release_keystore.sh`，
+   交互式输入签名主体 DN + 口令；完成后备份 `~/keys/reversiblemosaic.jks`
+   到离线位置。
+2. **【联合】Release 构建**：keystore 就位后，用户跑
+   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release`，
+   产出 signed Release APK。首次冷启动预计 25-30 分钟，增量 3-5 分钟。
+3. **【联合】签名 fingerprint 验证**：`keytool -printcert -jarfile <apk>`，
+   记录 SHA-256 到 `docs/release-notes.md` § 5 表格。
+4. **【联合】APK 装机 + AC-PERF 基准**：真机装 signed Release APK，
+   进阶段 0 自检 → "Stage 3 AC-PERF 基准"按钮跑一次，`adb pull` 取
+   `stage3_bench.json` 回主机，附到 `docs/probe-report.md`。
+5. **【联合】飞行模式 + 深浅色 + 大字体 walk-through**：真机开飞行模式跑完
+   选图 → 打码 → 保存 → 恢复；再切系统深/浅色 + 大字体 各走一遍；截图或
+   录屏反馈异常。
+
+Block 3 收官条件：signed Release APK v17 SHA-256 记录 + AC-PERF 真机中位数
+达标 + 飞行模式主链路通过。
 
 

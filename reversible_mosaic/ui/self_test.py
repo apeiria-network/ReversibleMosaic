@@ -1,12 +1,20 @@
-"""Stage-0 diagnostic screen.
+"""Stage-0 diagnostic screen + Stage 3 AC-PERF benchmark.
 
 Verifies that each newly-added arm64 native dependency (pyjnius / numpy /
-pillow / cython v1) actually loads and works on-device. Also runs a
-performance scan and persists results into the app's private data dir.
+pillow / cython v1) actually loads and works on-device. Also runs the
+Stage 3 AC-PERF benchmark (1920x1080, 2/5/15/30 rounds, 5 iterations each,
+encrypt-only timing per §10.2) and persists results as ``stage3_bench.json``
+in the app's private data dir so users can ``adb pull`` them back.
 
-This screen is temporary. Once Stage 0 exits, the entry button in
-:mod:`reversible_mosaic.app` is removed but this module stays for regression.
+This screen was born as a Stage 0 probe panel and stayed on because the
+five loader-checks (numpy / pillow / pyjnius / reference V1 / Cython V1)
+still provide value as regression tools. The performance-scan button now
+serves double duty as the Stage 3 AC-PERF harness.
 """
+
+# ruff: noqa: RUF001, RUF002
+# User-facing Chinese strings and docstrings intentionally use full-width
+# punctuation to match the app's Chinese UI conventions.
 
 from __future__ import annotations
 
@@ -33,6 +41,19 @@ try:
     from kivy.uix.textinput import TextInput
 except ImportError as exc:  # pragma: no cover - matches app.py's boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
+
+
+# Stage 3 AC-PERF (§10.2) round-count targets in seconds. Missing rounds
+# are treated as advisory only (median must be < target). AC-PERF explicitly
+# defines targets for 1/15/30 rounds; the intermediate 2/5 targets below
+# are conservative linear extrapolations so every scanned row gets a
+# pass/fail verdict.
+_AC_PERF_TARGETS_SECONDS: dict[int, float] = {
+    2: 6.0,
+    5: 9.0,
+    15: 27.0,
+    30: 52.0,
+}
 
 
 def _peak_rss_bytes() -> int | None:
@@ -195,9 +216,10 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
 
     def _banner_text(self) -> str:
         return (
-            "阶段 0 自检面板\n"
+            "阶段 0 探针 + Stage 3 AC-PERF 基准\n"
             f"Python {sys.version.split()[0]}  平台 {platform.machine()} {platform.system()}\n"
-            "按下按钮开始探针; 每项独立运行, 未打包依赖显示 NOT_BUILT。\n"
+            "上方按钮跑单项探针；下方按钮跑 1920x1080 x {2,5,15,30} x 5 次基准。\n"
+            "结果落 stage3_bench.json 于 App 私有目录 (adb pull 回主机)。\n"
             "----------------------------------\n"
         )
 
@@ -205,7 +227,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(8))
 
         title = Label(
-            text="阶段 0 自检",
+            text="阶段 0 探针 + AC-PERF 基准",
             font_size=dp(22),
             size_hint_y=None,
             height=dp(40),
@@ -218,7 +240,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             root.add_widget(btn)
 
         perf_btn = Button(
-            text="性能扫描 (1920x1080 RGB, 2/5/15/30 轮, 5 次中位数)",
+            text="Stage 3 AC-PERF 基准 (1920x1080 encrypt-only, 2/5/15/30 轮 x 5 次)",
             size_hint_y=None,
             height=dp(52),
         )
@@ -226,7 +248,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         root.add_widget(perf_btn)
 
         cancel_btn = Button(
-            text="取消性能扫描",
+            text="取消基准",
             size_hint_y=None,
             height=dp(40),
         )
@@ -301,7 +323,7 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         except Exception as exc:
             tb = "\n".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             Clock.schedule_once(
-                lambda _dt, tb=tb: self._append_line(f"性能扫描: FAIL\n{tb}"), 0
+                lambda _dt, tb=tb: self._append_line(f"AC-PERF 基准: FAIL\n{tb}"), 0
             )
             return
         elapsed = time.time() - started
@@ -311,29 +333,44 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             summary: dict[str, Any] = summary,
             elapsed: float = elapsed,
         ) -> None:
-            self._append_line("性能扫描: 完成")
+            self._append_line("AC-PERF 基准: 完成")
             self._append_line(f"  总耗时 {elapsed:.1f}s, 实现={summary['implementation']}")
+            all_pass = True
             for row in summary["rows"]:
+                target = row.get("ac_perf_target_s")
+                verdict = row.get("ac_perf_verdict", "?")
+                if verdict == "FAIL":
+                    all_pass = False
                 self._append_line(
                     f"  rounds={row['rounds']:>2}: "
                     f"median={row['median_s']:.3f}s "
                     f"p95={row['p95_s']:.3f}s "
+                    f"target={target}s "
+                    f"[{verdict}] "
                     f"peak_rss={_fmt_bytes(row['peak_rss_bytes'])}"
                 )
+            self._append_line(f"  AC-PERF 总判定: {'PASS' if all_pass else 'FAIL'}")
             self._append_line(f"  已写入 {summary['saved_to']}")
 
         Clock.schedule_once(_finish, 0)
 
     def _run_perf_scan(self) -> dict[str, Any]:
+        """AC-PERF §10.2 基准。
+
+        - 输入：1920x1080 8 位 RGB，固定种子 12345（跨机器/跨构建可复现）。
+        - 计时：仅 encrypt（"处理至预览"），不含 decrypt。每档跑 5 次取中位数
+          和 P95（这里取 max，样本量 5）。
+        - Sanity：每档在正式计时前先跑一次 encrypt+decrypt round-trip 验证
+          可逆性，防止基准结果统计了错误路径的时间。
+        - 输出：``stage3_bench.json`` 到 App 私有目录（``user_data_dir``）；
+          用户 adb pull 回主机存档到 ``docs/probe-report.md``。
+        """
         import numpy as np
 
         from reversible_mosaic.core.algorithm.registry import get, v1_implementation
 
         backend = v1_implementation()
         descriptor = get(1)
-        # AC-PERF target: 1920x1080 8-bit RGB, 1 round <= 3s, 10 rounds <= 18s,
-        # 20 rounds <= 35s. With Cython v1 wired into the pipeline we exercise
-        # the exact path the encode/decode screens will use.
         implementation = f"registry V1 backend = {backend}"
         width, height = 1920, 1080
 
@@ -341,9 +378,29 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         original = rng.integers(0, 256, size=(height, width, 3), dtype=np.uint8)
 
         rows: list[dict[str, Any]] = []
+        all_pass = True
         for rounds in (2, 5, 15, 30):
             if self._perf_cancel.is_set():
                 break
+
+            # Sanity round-trip: expensive on high rounds but only once per
+            # rounds value, and it catches any regression that would let the
+            # timing loop below run against a broken pipeline.
+            Clock.schedule_once(
+                lambda _dt, r=rounds: self._append_line(
+                    f"  ...rounds={r} sanity round-trip"
+                ),
+                0,
+            )
+            encrypted_sanity = descriptor.encrypt(original, 500000, rounds, None)
+            restored_sanity = descriptor.decrypt(encrypted_sanity, 500000, rounds, None)
+            if not np.array_equal(restored_sanity, original):
+                raise AssertionError(
+                    f"AC-PERF sanity: rounds={rounds} encrypt/decrypt 未复原 —— "
+                    "拒绝以损坏的管线出基准数据"
+                )
+            del encrypted_sanity, restored_sanity
+
             durations: list[float] = []
             peak_rss_before = _peak_rss_bytes()
             for iteration in range(5):
@@ -351,13 +408,13 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
                     break
                 Clock.schedule_once(
                     lambda _dt, r=rounds, i=iteration: self._append_line(
-                        f"  ...rounds={r} iter {i + 1}/5"
+                        f"  ...rounds={r} iter {i + 1}/5 (encrypt-only)"
                     ),
                     0,
                 )
                 t0 = time.perf_counter()
-                encrypted = descriptor.encrypt(original, 500000, rounds, None)
-                _ = descriptor.decrypt(encrypted, 500000, rounds, None)
+                # AC-PERF §10.2: "n 轮端到端处理至预览" — encrypt only.
+                _ = descriptor.encrypt(original, 500000, rounds, None)
                 elapsed = time.perf_counter() - t0
                 durations.append(elapsed)
             if not durations:
@@ -366,6 +423,12 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             median = durations_sorted[len(durations_sorted) // 2]
             p95 = durations_sorted[-1]
             peak_rss_after = _peak_rss_bytes()
+
+            target = _AC_PERF_TARGETS_SECONDS.get(rounds)
+            verdict = "PASS" if (target is None or median <= target) else "FAIL"
+            if verdict == "FAIL":
+                all_pass = False
+
             rows.append(
                 {
                     "rounds": rounds,
@@ -373,6 +436,8 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
                     "median_s": median,
                     "p95_s": p95,
                     "peak_rss_bytes": peak_rss_after or peak_rss_before,
+                    "ac_perf_target_s": target,
+                    "ac_perf_verdict": verdict,
                 }
             )
 
@@ -380,7 +445,10 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
             "implementation": implementation,
             "backend": backend,
             "resolution": f"{width}x{height}",
+            "timing_scope": "encrypt-only (AC-PERF §10.2 端到端至预览)",
+            "sample_seed": 12345,
             "rows": rows,
+            "ac_perf_overall": "PASS" if all_pass else "FAIL",
             "cancelled": self._perf_cancel.is_set(),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "python": sys.version.split()[0],
@@ -393,6 +461,6 @@ class SelfTestScreen(Screen):  # type: ignore[misc]
         app = App.get_running_app()
         base = Path(app.user_data_dir) if app is not None else Path.cwd()
         base.mkdir(parents=True, exist_ok=True)
-        target = base / "stage0_perf.json"
+        target = base / "stage3_bench.json"
         target.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         return target

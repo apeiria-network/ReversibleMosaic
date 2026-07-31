@@ -30,7 +30,7 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 
 - **性能验收设备**：待用户在 Stage 3 Block 3 时指定 8GB RAM arm64 中端机型。
   在设备型号冻结前，AC-PERF 沿用 v7 debug APK 数据作为**参考证据**，正式
-  验收在 v16 signed Release APK 上复采一次。
+  验收在 v17 signed Release APK 上复采一次。
 - **飞行模式验收设备**：同一台性能验收机（AC-016）。
 
 ### 冻结阈值
@@ -55,7 +55,7 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 - **自动**：Buildozer 构建冒烟（会走 [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
   产出 APK；构建失败即 fail）。
 - **人工**：真机安装 + 启动 + 进首页确认。
-- **证据**：v15 debug APK 已被用户装机确认（Stage 2b 收官）；v16 signed Release
+- **证据**：v15 debug APK 已被用户装机确认（Stage 2b 收官）；v17 signed Release
   待 Stage 3 Block 3 出。
 - **状态**：⏱ 待 Block 3 signed Release APK 出后由用户装机复测。
 
@@ -66,7 +66,7 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
   全流程。
 - **证据**：v15 debug APK 用户已在 Stage 2b 走通主链路；
   未保存离开二次确认见 [`reversible_mosaic/ui/screens.py::ResultScreen._on_back`](../reversible_mosaic/ui/screens.py)。
-- **状态**：⏱ v16 出后由用户回测 FR-HOME-003 首启一次性技术边界弹窗替代方案
+- **状态**：⏱ v17 出后由用户回测 FR-HOME-003 首启一次性技术边界弹窗替代方案
   （MVP 用首页"教程与安全边界"入口，P1 补首启 dialog）。
 
 ### AC-003 —— 联合：格式支持 + 单图限制
@@ -141,7 +141,7 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 - **自动**：[`tests/unit/test_android_native.py`](../tests/unit/test_android_native.py) 14 case 覆盖 Android
   gateway 的 insert null / write IOError / SHA-256 mismatch / commit 失败四条
   路径的 pending 删除（FR-SAVE-006）。
-- **人工**：v16 装机后走完 保存到相册 → 系统相册查看 → 系统分享。
+- **人工**：v17 装机后走完 保存到相册 → 系统相册查看 → 系统分享。
 - **状态**：⏱ 待 Block 3 真机验收。
 
 ### AC-013 —— 联合：并发/取消/状态恢复 + UI 可响应 + 不可重复启动 + 后台/失败重试
@@ -223,7 +223,7 @@ walk-through）落在真机人工/联合类，不进 pytest 主套件。
 
 Block 3 结束时本文档追加：
 
-- v16 signed Release APK 的 AC-PERF 实测中位数 / P95 / 峰值 RSS 表格
+- v17 signed Release APK 的 AC-PERF 实测中位数 / P95 / 峰值 RSS 表格
 - 飞行模式真机走查截图（用户回传）
 - 系统分享接收方 App 列表快照（哪些能拉起分享 Intent）
 

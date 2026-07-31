@@ -1,7 +1,7 @@
 # Android 构建基线（阶段 3 冻结）
 
 > **文档版本**：0.1.0（阶段 3 冻结，2026-07-30）
-> **对应 APK**：v15 debug (Stage 2b 收官) → v16 signed Release（Stage 3 Block 3 计划）
+> **对应 APK**：v15 debug (Stage 2b 收官) → v17 signed Release（Stage 3 Block 3 计划）
 > **仅支持 ABI**：`arm64-v8a`；`armeabi-v7a` / `x86_64` 不在 MVP 范围。
 
 本文档记录 MVP 第一次内部签名 Release 的**完整可复现构建基线**。任何工具链
@@ -125,7 +125,7 @@ target Python 3.14 头）。buildozer 通过 `source.include_exts = ...,so,...`
 ```bash
 sha256sum ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk
 cp ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk \
-   /mnt/d/python/python_projects/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v16.apk
+   /mnt/d/python/python_projects/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v17.apk
 ```
 
 SHA-256 记录到 [`docs/release-notes.md`](release-notes.md) 的对应版本条目。
@@ -138,21 +138,107 @@ Stage 3 采用**内部自签 Release**（应用户决定，2026-07-30）：
 
 - **applicationId**：保留探针值 `io.placeholder.reversiblemosaic`。正式面向
   公开用户发布前必须换成开发者自有域名反写的正式 ID。
-- **keystore**：由用户在 WSL 本机用 `keytool` 生成，路径 `~/keys/reversiblemosaic.jks`，
-  别名 `reversiblemosaic`，10000 天有效期。密钥文件与口令**不进入源码仓库、
-  不发送给 AI**。
+- **keystore**：由用户在 WSL 本机用 `keytool` 生成，默认路径
+  `<项目>/keys/reversiblemosaic.jks`（`.gitignore` 已加目录级 `keys/` 拦截），
+  别名 `reversiblemosaic`，10000 天有效期。可通过 `KEYSTORE_DIR=` /
+  `KEYSTORE_FILE=` 环境变量覆盖到项目外的位置。密钥文件与口令**不进入源码
+  仓库、不发送给 AI**；用户需自行拷一份到项目外的离线安全位置作为备份
+  （项目目录可能被 OneDrive/iCloud/云盘同步 —— gitignore 管不住这些）。
 - **keystore 口令持久化**：写到 `buildozer.spec.local`（`.gitignore` 排除），
   buildozer 通过 `p4a.release_artifact` / signing config 读入。
 - **发行说明必须写清**：Release APK 用的是内部自签 keystore，不能作为正式渠道
   发布身份使用，商用发布前需切换。
 
-签名的具体 keytool / buildozer signing 步骤在 Stage 3 Block 3 落地时补
-[`scripts/generate_release_keystore.sh`](../scripts/generate_release_keystore.sh)
-与 `buildozer.spec.local` 模板；本文档届时追加 § 5"Release 签名执行"。
+签名的具体 keytool / buildozer signing 步骤见下 § 5"Release 签名执行"。
 
 ---
 
-## 5. 已知构建障碍与对策（历史留档）
+## 5. Release 签名执行（Stage 3 Block 3）
+
+### 5.1 一次性：生成 keystore
+
+在 WSL Ubuntu 里跑一次（PowerShell 里发起）：
+
+```powershell
+wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/generate_release_keystore.sh
+```
+
+脚本会：
+1. `keytool -genkeypair` 生成 RSA-2048 keystore 到 `<项目>/keys/reversiblemosaic.jks`
+   （默认路径；`KEYSTORE_DIR=` / `KEYSTORE_FILE=` 环境变量可覆盖），
+   别名 `reversiblemosaic`，10000 天有效期。
+2. 交互式索取 CN/OU/O/L/ST/C 与 keystore/key 口令（**你自行选择，脚本不保存**）。
+3. 把 keystore 路径 + 口令写入 `buildozer.spec.local`（`chmod 600`，
+   `.gitignore` 已排除）。
+
+**关键叮嘱**：
+- 立即备份 `<项目>/keys/reversiblemosaic.jks` 到项目外的离线安全位置。
+  项目目录可能被云盘同步 / 压缩打包 / 截图分享 —— gitignore 管不住这些。
+  密钥丢 = 未来同 applicationId 的老用户永远收不到升级。
+- `buildozer.spec.local` 里明文存有口令，只应存在于你本机。**不要 git add**。
+- 内部自签 keystore ≠ 正式发布身份。见 [`docs/release-notes.md`](release-notes.md) § 1
+  五步走。
+
+### 5.2 Release 构建
+
+一次性 keystore 就位后，每次改代码打 Release APK：
+
+```powershell
+wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release
+```
+
+`wsl_build_android.sh` 的 `release` 分支会：
+1. 检查 `buildozer.spec.local` 存在（不存在则 exit 3，提示先跑生成脚本）。
+2. rsync + p4a 缓存 hard-link + github.com 镜像 + Cython 交叉编译，与 debug
+   路径一致。
+3. `buildozer android release` 触发签名步骤，读取 `buildozer.spec.local` 里的
+   四个 `android.release_*` key。
+4. 产物：`~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk`。
+
+**注意：`android.release_artifact = apk`** —— buildozer 在 `release` 模式下
+**默认输出 AAB**（Google Play 应用包）。AAB 不能 `adb install`、不能直接分发，
+只能上传到 Play Console 由 Google 二次分发。AC-001 / AC-012 / AC-016 都要求
+可直接安装的签名 APK，所以 `buildozer.spec` 里显式设了
+`android.release_artifact = apk` 强制出 APK。首次遇到日志里"APK ...
+release.aab available in the bin directory"（buildozer 自身的 typo，说 APK
+但产物是 AAB）就是这个配置缺失导致的。
+
+### 5.3 验证签名 fingerprint
+
+```bash
+keytool -printcert -jarfile ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk
+```
+
+记录 SHA-256 fingerprint 到 [`docs/release-notes.md`](release-notes.md) § 5 表格
+（跟 APK 文件的 SHA-256 一并入档）。
+
+### 5.4 装机与 AC-PERF 基准
+
+Release APK 装机（真机开发者选项打开、允许安装未知来源）：
+
+```bash
+# On the phone side (with USB debugging on)
+adb install -r bin/reversiblemosaic-0.1.0-arm64-v8a-release-v17.apk
+```
+
+进入 App 首页 → 阶段 0 自检（临时按钮）→ 底部"Stage 3 AC-PERF 基准"按钮 →
+等待完成（30 轮 5 次跑完约需 8-10 秒 + 高轮数 sanity round-trip）。结果自动
+落入 App 私有目录 `stage3_bench.json`。
+
+`adb pull` 取回：
+
+```bash
+adb shell run-as io.placeholder.reversiblemosaic cat files/stage3_bench.json > stage3_bench.json
+# 如果 run-as 拿不到，App 端把 saved_to 路径显示在 UI 上，adb pull <path>
+```
+
+拿到 JSON 后追加到 [`docs/probe-report.md`](probe-report.md) "Stage 3 AC-PERF"
+一节，同时把 pass/fail 判定与 median/P95 写进
+[`docs/test-plan.md`](test-plan.md) § 2 AC-PERF 条目。
+
+---
+
+## 6. 已知构建障碍与对策（历史留档）
 
 以下问题在 Stage 0–2 探针过程中遇到并已实施对策；升级 NDK / p4a / Buildozer
 版本时如果不再需要，可以逐条移除。
@@ -177,7 +263,7 @@ Stage 3 采用**内部自签 Release**（应用户决定，2026-07-30）：
 
 ---
 
-## 6. 交付物清单（对应需求档 §16）
+## 7. 交付物清单（对应需求档 §16）
 
 阶段 3 结束时必须交付：
 
@@ -191,7 +277,7 @@ Stage 3 采用**内部自签 Release**（应用户决定，2026-07-30）：
 4. 测试集清单 + 来源 + 许可 + SHA-256：
    [`artifacts/visual_review/scorecard.md`](../artifacts/visual_review/scorecard.md)
 5. Buildozer.spec + SDK/NDK 配置 + 构建文档：本文档 + 上面 § 3
-6. **可安装的签名 Release APK**：Stage 3 Block 3 出 v16；SHA-256 与
+6. **可安装的签名 Release APK**：Stage 3 Block 3 出 v17；SHA-256 与
    签名 fingerprint 记录到 [`docs/release-notes.md`](release-notes.md)
 7. 用户教程（App 内置 TutorialScreen）+ 隐私说明（本 README 与需求档 §11）+
    第三方许可：[`docs/release-notes.md`](release-notes.md) § 第三方许可清单

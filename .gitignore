@@ -18,6 +18,11 @@ bin/
 *.aab
 *.keystore
 *.jks
+# Stage 3: keystore + signing config live in-tree per user choice. keys/ is a
+# directory-level guard so any file under it (not just .jks) stays out of git,
+# and buildozer.spec.local holds the keystore password in plaintext.
+keys/
+buildozer.spec.local
 local.properties
 .env
 .cache/

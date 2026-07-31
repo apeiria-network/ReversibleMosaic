@@ -111,12 +111,26 @@
 - Stage 2b：Android 集成（MediaStore、Photo Picker、敏感剪贴板、`_mosaic` 命名）。
 - Stage 3：稳定性 fuzz 扩展、依赖版本固化、内部签名 Release APK、AC 全表验收。
 
-**APK SHA-256 记录**（Stage 3 Block 3 结束时填充）：
+**APK SHA-256 记录**：
 
-| APK 版本 | SHA-256 | 大小 | 签名 fingerprint | 备注 |
-|---|---|---:|---|---|
-| v15 debug (Stage 2b) | *(见 [`bin/`](../bin/) 目录)* | — | debug keystore | Stage 2b 真机验收使用 |
-| **v16 signed Release** | *(Stage 3 Block 3 填充)* | — | 内部自签 fingerprint | MVP 首次交付 |
+| APK 版本 | 大小 | 文件 SHA-256 | 签名方案 | 签名主体 | 证书 SHA-256 fingerprint |
+|---|---:|---|---|---|---|
+| v15 debug (Stage 2b) | ~34 MiB | *(见 [`bin/`](../bin/) 目录 sha256sum)* | debug keystore (v1+v2) | Android debug | — |
+| v17 debug (Stage 3) | ~34 MiB | *(见 [`bin/`](../bin/) 目录 sha256sum)* | debug keystore (v1+v2) | Android debug | — |
+| **v17 signed Release** | **31.6 MiB** (33,115,120 B) | `546dc561005b2a02745d6ec10bdfdcc4cd46a33cd4c26f435e208a49919b0394` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
+
+**v17 signed Release 补充信息**：
+- 签名日期：2026-07-31（Stage 3 Block 3）
+- Key 算法：RSA-2048
+- Key alias：`reversiblemosaic`
+- 签名 keystore：`<项目>/keys/reversiblemosaic.jks`（内部自签，`.gitignore` 已排除；WSL 侧不留副本，`wsl_build_android.sh` 的 rsync 已加 `--exclude "keys/"`）
+- 证书 SHA-1 fingerprint：`46a3154a05571f416a0f4cd7ea795c19a65079fa`
+- 未启用签名方案：v1 (JAR)、v3.1、v3.2、v4、SourceStamp —— 均为可选，Android 8.0+ 装机仅需 v2 或 v3 之一。
+- **签名产物路径**：`bin/reversiblemosaic-0.1.0-arm64-v8a-release-v17.apk`（Windows 侧）与
+  `~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk`（WSL 侧，无版本后缀）
+- **签名流程说明**：buildozer 在当前配置下产出 `*-release-unsigned.apk`（即使
+  `buildozer.spec.local` 里有 signing config），需要额外用 Android SDK 的
+  `apksigner` 手工签名。命令详见 [`docs/build-android.md`](build-android.md) § 5.2。
 
 ---
 

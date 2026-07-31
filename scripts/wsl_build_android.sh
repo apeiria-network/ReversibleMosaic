@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
-# Convenience script: run inside WSL to build the Android probe APK.
+# Convenience script: run inside WSL to build the Android APK (debug or release).
+#
+# Usage:
+#   wsl_build_android.sh              # debug build (default)
+#   wsl_build_android.sh debug        # explicit debug
+#   wsl_build_android.sh release      # release build (requires buildozer.spec.local
+#                                       with android.release_keystore + passwords;
+#                                       generate via scripts/generate_release_keystore.sh)
 set -euo pipefail
+
+BUILD_MODE="${1:-debug}"
+case "$BUILD_MODE" in
+    debug|release) ;;
+    *)
+        echo "[error] unknown build mode: $BUILD_MODE (expected: debug|release)" >&2
+        exit 2
+        ;;
+esac
 
 MY_PID=$$
 # Kill leftover buildozer/p4a processes but never this shell or our caller.
@@ -37,6 +53,7 @@ rsync -a --delete \
     --exclude "build/" \
     --exclude "bin/" \
     --exclude ".buildozer/" \
+    --exclude "keys/" \
     --exclude "*.egg-info/" \
     /mnt/d/python/python_projects/ReversibleMosaic/ "$WORKSPACE/"
 
@@ -78,5 +95,20 @@ export GIT_CONFIG_VALUE_0="https://github.com/"
 
 cd "$WORKSPACE"
 : > "$LOG"
+
+# For release builds we require the signing config to exist. Buildozer would
+# otherwise silently produce an unsigned APK that Android refuses to install.
+# spec.local is generated on the Windows side by generate_release_keystore.sh,
+# so the rsync above has already brought it into $WORKSPACE.
+if [ "$BUILD_MODE" = "release" ]; then
+    SPEC_LOCAL="$WORKSPACE/buildozer.spec.local"
+    if [ ! -f "$SPEC_LOCAL" ]; then
+        echo "[error] release build requested but $SPEC_LOCAL missing." >&2
+        echo "        Run scripts/generate_release_keystore.sh first." >&2
+        exit 3
+    fi
+    echo "[wsl_build_android] release build using signing config $SPEC_LOCAL"
+fi
+
 # Foreground; caller must background this script if desired.
-exec buildozer android debug 2>&1 | tee -a "$LOG"
+exec buildozer android "$BUILD_MODE" 2>&1 | tee -a "$LOG"

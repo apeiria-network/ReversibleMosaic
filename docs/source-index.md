@@ -649,35 +649,48 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 - 仅 docstring `"""UI-layer helpers (view models + Kivy screens)."""`。
 
 ### [`ui/self_test.py`](../reversible_mosaic/ui/self_test.py)
-- **作用**：**阶段 0 临时诊断屏**。5 个探针按钮（pyjnius / numpy / pillow /
-  V1 参考实现透明 RGBA / V1 Cython 优化）+ 性能扫描按钮 + 取消按钮 +
-  可滚动结果 TextInput。用于在真机上验证每个 arm64 原生依赖打包 +
-  加载 + 运行是否正常。阶段 0 退出后从首页删入口（`app.py` 里 
-  `"阶段 0 自检 (临时)"` Button），本模块保留以做回归。
+- **作用**：**阶段 0 探针屏 + Stage 3 AC-PERF 基准入口**。5 个探针按钮
+  （pyjnius / numpy / pillow / V1 参考实现透明 RGBA / V1 Cython 优化）+
+  Stage 3 基准按钮 + 取消按钮 + 可滚动结果 TextInput。**Stage 3 Block 3
+  升级**：性能扫描从"encrypt+decrypt 计时 / 输出 stage0_perf.json"改为
+  "encrypt-only 计时 / 输出 stage3_bench.json / 加 AC-PERF pass/fail 判定"。
 - **导出**：
   - `SelfTestScreen(Screen)`：程序化构建 widget 树（不用 KV），
-    在 `__init__` 里挂 5 个探针按钮 + 性能扫描 + 取消 + 清空结果 + 返回首页。
-    perf 扫描跑 `threading.Thread`，通过 `Clock.schedule_once` 回主线程更新
+    在 `__init__` 里挂 5 个探针按钮 + Stage 3 基准 + 取消 + 清空结果 + 返回首页。
+    基准跑 `threading.Thread`，通过 `Clock.schedule_once` 回主线程更新
     Label；取消用 `threading.Event`。
   - `SYNC_PROBES`：`(label, callback)` 列表，同步探针；每项独立可点。
   - 模块级探针函数（下划线开头，测试可直接调用）：
     `_probe_pyjnius / _probe_numpy / _probe_pillow /
     _probe_reference_v1 / _probe_v1_cython`。
+  - `_AC_PERF_TARGETS_SECONDS`：Stage 3 §10.2 每档目标（2:6s / 5:9s /
+    15:27s / 30:52s）。15/30 是需求原值，2/5 是保守线性外推。
   - 辅助：`_peak_rss_bytes()`（stdlib `resource` 优先, fallback
     `/proc/self/status`）、`_fmt_bytes()`。
-- **数据落盘**：性能扫描完成时写 `{App.user_data_dir}/stage0_perf.json`
-  （字段：implementation、resolution、rows[rounds/iterations/median_s/p95_s/
-  peak_rss_bytes]、cancelled、timestamp、python、machine）。
+  - `# ruff: noqa: RUF001, RUF002`（file-level）—— UI 中文文案允许全角标点。
+- **AC-PERF 基准逻辑**（Stage 3 Block 3）：
+  - 输入：1920×1080 8 位 RGB，`np.random.default_rng(seed=12345)` 生成，
+    跨机器/跨构建可复现。
+  - 每档先跑一次 encrypt→decrypt round-trip sanity（**不计入 timing**），
+    不复原直接抛 AssertionError，拒绝以损坏管线出基准数据。
+  - 计时循环只 encrypt（AC-PERF §10.2 "n 轮端到端处理至预览"，不含 decrypt）。
+  - 每档 5 次：median = 排序 index 2，P95 = max（5 样本近似）；每档记录
+    `ac_perf_target_s` + `ac_perf_verdict` (PASS/FAIL)。
+- **数据落盘**：基准完成时写 `{App.user_data_dir}/stage3_bench.json`
+  （字段：implementation、backend、resolution、timing_scope、sample_seed、
+  rows[rounds/iterations/median_s/p95_s/peak_rss_bytes/ac_perf_target_s/
+  ac_perf_verdict]、ac_perf_overall、cancelled、timestamp、python、machine）。
+  真机上用 `adb shell run-as io.placeholder.reversiblemosaic cat files/stage3_bench.json`
+  取回主机存档到 `docs/probe-report.md`。
 - **谁用它**：`app.py` import + 首页 "阶段 0 自检 (临时)" 按钮跳转；
   `tests/unit/test_self_test_probes.py` 覆盖 PC 端可跑的 4 个探针。
 - **改动指引**：
   - **临时模块**，不要在这里放生产逻辑；生产屏（EncodeScreen 等）走 view_models。
   - 加新探针：在 `SYNC_PROBES` 追加 `("标签", _probe_xxx)`；探针必须
     返回字符串或抛异常 —— UI 侧统一 catch。
-  - 性能扫描目前跑 256x256 reference —— 阶段 1 把 Cython 接到 pipeline
-    后可换成 1920x1080 optimized。
+  - 改 AC-PERF 目标：只改 `_AC_PERF_TARGETS_SECONDS`，同步 §10.2 需求档。
   - 阶段 0 退出后：只删 `app.py` 里的 HomeScreen 按钮和 KV `SelfTestScreen:`
-    条目；保留本文件供回归。
+    条目；保留本文件供回归 + AC-PERF 基准入口。
 
 ---
 
@@ -853,7 +866,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 
 #### [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
 Buildozer 打包主入口，**只在 WSL Ubuntu 里跑**（`wsl -d Ubuntu -- bash
-scripts/wsl_build_android.sh`）。做的事：
+scripts/wsl_build_android.sh [debug|release]`）。做的事：
 1. 杀掉遗留的 `buildozer` / `python-for-android` 进程（不含自身 PID）。
 2. **增量** `rsync -a --delete --exclude ".buildozer/"` 从 Windows 侧
    同步源码到 `/home/hydrogen/src/ReversibleMosaic/`。**关键**：保留
@@ -864,13 +877,46 @@ scripts/wsl_build_android.sh`）。做的事：
 4. 通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 把 recipe 里
    `https://github.com/*` clone 重定向到 `https://ghfast.top/https://github.com/*`
    镜像 —— **每次调用生效，不改用户 `~/.gitconfig`**。
-5. `cd $WORKSPACE && exec buildozer android debug`，同步写日志到
+5. **Stage 3 Block 3 新增 release 分支**：位置参数默认 `debug`；`release`
+   时前置检查 `buildozer.spec.local` 存在（不存在 exit 3 引导用户先跑
+   `generate_release_keystore.sh`），最终 `exec buildozer android <mode>`。
+6. `cd $WORKSPACE && exec buildozer android <mode>`，同步写日志到
    `/home/hydrogen/src/reversible-mosaic-build.log`。
 
 **改动指引**：
 - **绝对不要**恢复 `rm -rf $WORKSPACE` —— 每轮都会从零重编 CPython。
 - 不要动用户全局 git config；用现有的 `GIT_CONFIG_*` 环境变量方式。
 - 加新的镜像可以直接改脚本里 `GIT_CONFIG_VALUE_0`。
+- 加新的 build mode（如 `test` / `aab`）：在顶部 `case` 里追加，后面 buildozer
+  命令原样透传。
+
+#### [`scripts/generate_release_keystore.sh`](../scripts/generate_release_keystore.sh)
+**Stage 3 Block 3 新增**。交互式 keytool 封装，一次性生成 Release APK 签名
+keystore + 写 `buildozer.spec.local`。
+- **前置**：WSL Ubuntu 装了 OpenJDK 17（`keytool` 命令可用）。
+- **默认路径**：`<项目>/keys/reversiblemosaic.jks`（`.gitignore` 挡住 `keys/`
+  目录级）。别名 `reversiblemosaic`，RSA-2048，validity 10000 天。可用
+  `KEYSTORE_FILE=` / `KEYSTORE_DIR=` / `KEY_ALIAS=` 环境变量覆盖 —— 建议
+  长期存放用项目外位置（U 盘 / 密码管理器附件），因为项目目录可能被
+  云盘同步或压缩打包，gitignore 管不住这些。
+- **交互流程**：
+  1. 已有同路径 keystore 时提示确认覆盖（防误删导致老 APK 无法升级）。
+  2. 索取签名主体 DN 六个字段（CN 必填，OU/O/L/ST/C 可选）。
+  3. `keytool -genkeypair` 直接向用户索取 keystore + key 口令（**脚本不接触
+     口令内容**）。
+  4. `keytool -list -v` 验证生成成功。
+  5. 二次读入口令（写入 `buildozer.spec.local` 用；这次经过脚本变量传递，
+     但只落到 chmod 600 的本地文件，不打日志、不上网）。
+  6. 生成 `buildozer.spec.local`（`.gitignore` 已排除），包含
+     `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd` 四个 key。
+- **关��叮嘱**（脚本尾部打印）：备份 keystore 到离线安全位置；不要 git add
+  `buildozer.spec.local`；正式发布前完成身份切换五步（见
+  [`docs/release-notes.md`](release-notes.md) § 1）。
+- **改动指引**：
+  - 想换 keyalg / keysize：改脚本顶部的 `KEY_ALGORITHM` / `KEY_SIZE`（当前
+    RSA-2048 是 Android APK 签名标准）。
+  - 想让脚本 non-interactive（CI 用）：走环境变量 + `keytool -storepass ... -keypass ...`
+    路径 —— **禁止** 把口令写进任何入库文件；建议 CI 从 secrets manager 读。
 
 #### [`scripts/wsl_prefetch_p4a.sh`](../scripts/wsl_prefetch_p4a.sh)
 一次性预取 p4a 需要的全部 tarball（hostpython3, jpeg, libffi, libwebp,
