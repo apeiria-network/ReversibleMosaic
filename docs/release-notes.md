@@ -56,9 +56,28 @@
 
 ### 性能
 
-- 1920×1080 RGB 图片、Cython 加速内循环，30 轮真机中位数约 1.53 s（v7 debug
-  APK 数据外推，AC-PERF 目标 52 s 的 34× 余量）；峰值 RSS ~275 MiB。
+- 1920×1080 RGB 图片、Cython 加速内循环，v18 signed Release 在小米 K80 Pro /
+  Android 16 / RAM 16+6 GB 上真机中位数（2026-07-31 采集）：
+  - 2 轮 0.051 s / 5 轮 0.127 s / 15 轮 0.341 s / 30 轮 0.762 s
+  - AC-PERF 目标 6 / 9 / 27 / 52 s，每档余量 ≥ 68×
+  - 峰值 RSS 485 MiB（远低于 §10.1 60% 内存上限）
 - V1 Cython `.so` 交叉编译进 APK；PC 侧走 Python 参考实现兜底。
+- 详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v18 signed Release 真机基准。
+
+### MVP 真机验收（2026-07-31）
+
+v18 signed Release APK 在小米 K80 Pro / Android 16 上完成 Stage 3 Block 3 定义
+的 F3+F4+F5 三项真机测试：
+
+- **F3 AC-PERF 复采** ✅ 4 档全 PASS，最低余量 68×（30 轮 0.762 s vs 52 s 目标）
+- **F4 飞行模式 + 主链路** ✅ PNG + JPEG + 随机分享代码 + encode + decode +
+  保存到相册可见 + 深/浅色 + 大字体全部走通
+- **F5 Manifest 权限验证** ✅ aapt dump 确认仅 `WRITE_EXTERNAL_STORAGE` +
+  自动派生的 `READ_EXTERNAL_STORAGE`（都 maxSdkVersion=28），无 INTERNET /
+  ACCESS_NETWORK_STATE / CAMERA / LOCATION / READ_MEDIA_*
+
+对应 AC 条目 ✅ 状态：AC-001 / AC-003 / AC-012 / AC-016 / AC-PERF —— 见
+[`docs/test-plan.md`](test-plan.md) § 2 逐条追踪。
 
 ### 隐私
 

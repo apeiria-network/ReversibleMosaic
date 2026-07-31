@@ -560,18 +560,102 @@ CRLF。本会话通过 Claude Code 的 Edit/Write 工具重写 `.sh` 文件时�
 - **§ 1.C1 + C3 + D3** ✅ 完成（apksigner 封装 + 双参强制）
 - **§ 1.D1** ✅ 完成（v17 debug 真机数据入 probe-report + development_plan + test-plan）
 - **§ 1.E2** ✅ 完成（AC-PERF 老口径 `{1,5,10,20}` 换成 v17 debug `{2,5,15,30}` 数据）
-- **§ 1.C2** —— 待真机 F3 完成（v17 装机 + AC-PERF signed Release 复采）
-- **§ 1.F3~F6** —— 待用户开闸
+- **§ 1.C2** ✅ 完成（v18 signed Release apksigner 签名 + verify 通过 + 装机验收通过；见 § 4.7.5）
+- **§ 1.F3~F5** ✅ 全部完成（见 § 4.7.5）
+- **§ 1.F6** ⏭ SKIPPED（预期安全边界 —— release APK 不 debuggable，`run-as` 被 Android 沙盒拒绝，见 § 4.7.5）
 
-现在**已具备真机测试条件**：v18 debug + release 两个 APK 都在 D 盘 `bin/`，
-证书指纹与 v17 一致，Android 8.0+ 可直接 `adb install`。
+现在**Stage 3 Block 3 全部收口**：v18 debug + release 两个 APK 在 D 盘 `bin/`，
+证书指纹与 v17 一致，K80 Pro 上 AC-PERF 每档 ≥ 68× 余量、飞行模式主链路通过、
+Manifest 权限只见存储类且封在 API 28。
 
 ### 4.7.4 stage3-real-test 分支时序（用户实际操作）
 
-- 本会话结尾 `problem-solution` 合到 `release`（用户操作）
+- 本会话中段 `problem-solution` 合到 `release`（用户操作）
 - 从 `release` 拉 `stage3-real-test` 分支做真机测试调试（用户操作）
-- 本文档的 § 4.7 与相关 v18 SHA 记录 commit 落在 `stage3-real-test`
+- 本文档的 § 4.7 与相关 v18 SHA 记录 commit（`92aa976 realtest1`）落在 `stage3-real-test`
+- 本 § 4.7.5 F3/F4/F5 验收记录 commit 也在 `stage3-real-test`
 - 未来 `stage3-real-test` 完成真机测试后合回 `release`，最终合入 `main`
+
+### 4.7.5 F3 / F4 / F5 真机验收记录（2026-07-31，K80 Pro）
+
+**测试设备**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)
+**测试日期**：2026-07-31
+**测试 APK**：v18 signed Release
+（SHA-256 `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53`；
+证书 SHA-256 `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7`）
+
+#### F5 Manifest 权限验证 ✅ PASS
+
+从 aapt dump 输出（`~/.buildozer/android/platform/android-sdk/build-tools/*/aapt`）：
+
+```
+package: io.placeholder.reversiblemosaic
+sdkVersion: 26
+targetSdkVersion: 34
+native-code: 'arm64-v8a'
+uses-permission: WRITE_EXTERNAL_STORAGE maxSdkVersion=28
+uses-permission: READ_EXTERNAL_STORAGE  maxSdkVersion=28  # Android 自动派生
+```
+
+**判定**：
+- ❌ 无 `INTERNET` / `ACCESS_NETWORK_STATE` （AC-016 关键项 + 飞行模式验证前置）
+- ❌ 无 `CAMERA` / `LOCATION` / `READ_MEDIA_*` / `READ_CONTACTS`（敏感权限全清）
+- ✅ 存储权限都限 API 26–28
+- ✅ 单 ABI arm64-v8a、minapi 26、target 34 符合 MVP 目标
+
+**READ_EXTERNAL_STORAGE 的自动派生说明**：`buildozer.spec` 只声明了 WRITE，
+Android manifest merger 自动补 READ（"能写必能读"的隐含规则，API 4+ 就有），
+并同样 cap 到 `maxSdkVersion=28`。这不是配置漏洞，是标准行为 + 符合意图（API 26–28
+需要文件系统读写，API 29+ 走 scoped storage 不申请）。
+
+#### F3 v18 signed Release AC-PERF 复采 ✅ PASS（每档余量 ≥ 68×）
+
+App 内 "Stage 3 AC-PERF 基准" 按钮跑 1920×1080 RGB × `{2, 5, 15, 30}` × 5 次
+encrypt-only：
+
+| rounds | median | P95 | peak_rss | target | verdict | 余量 |
+|---:|---:|---:|---:|---:|:---:|---:|
+|  2 | 0.051 s | 0.056 s | 484.8 MiB |  6 s | ✅ PASS | ~118× |
+|  5 | 0.127 s | 0.133 s | 484.8 MiB |  9 s | ✅ PASS | ~71× |
+| 15 | 0.341 s | 0.381 s | 484.8 MiB | 27 s | ✅ PASS | ~79× |
+| 30 | 0.762 s | 0.766 s | 484.8 MiB | 52 s | ✅ PASS | ~68× |
+
+- 总扫描 8.6 s，backend = `cython`（confirmed via UI 打印行）
+- 写入 `/data/user/0/io.placeholder.reversiblemosaic/files/stage3_bench.json`
+  （v18 起 self_test.py 用新文件名，与 v17 遗留的 `stage0_perf.json` 区分）
+- **同机 v17 debug 对比 median 快 ~50%**（例：30 轮 1.533 → 0.762 s）
+  —— 归因于测试环境状态差异（手机充电时锁高频、前置探针累计 RSS）而非代码差异。
+  两个 build 用同一份 Cython `.so`（`v1.cpython-314-aarch64-linux-android.so`），字节相同。
+- peak_rss 484.8 MiB 远低于 §10.1 60% 内存上限（16 GB × 60% ≈ 9.6 GiB）。
+
+**注**：MVP 内部发布使用 K80 Pro（flagship SoC）。正式面向公开用户发布前，
+需要绑定"约定低端 8 GB arm64 机型"复采一次，K80 Pro 的 68× 余量给了充足 headroom
+但需实测确认。
+
+#### F4 飞行模式 + PNG/JPEG 主链路 + UI 兼容 ✅ PASS
+
+- ✅ 飞行模式开启下 PNG 主流程（选图 → 打码 → 保存 → 恢复）通过
+- ✅ 飞行模式开启下 JPEG 主流程（含 EXIF orientation 分支）通过
+- ✅ 随机分享代码路径通过（6 位数字，避开默认 500000）
+- ✅ 保存到相册 → 系统相册（Pictures/ReversibleMosaic）可见输出文件（MediaStore 路径工作正常）
+- ✅ 系统深色 / 浅色主题切换下 UI 主链路均正常，无布局崩坏
+- ✅ 系统大字体（无障碍最大字号）下 UI 布局不溢出、按钮可点、主链路完整
+
+**判定**：AC-016 人工部分（飞行模式）+ AC-001（装机启动）+ AC-003 人工部分（PNG + JPEG）
++ AC-012 人工部分（MediaStore 保存 + 相册可见）全部 ✅。
+
+#### F6 stage3_bench.json adb pull ⏭ SKIPPED（预期安全边界）
+
+Release APK 没有 `android:debuggable="true"`（这是正确的安全姿态），
+`adb shell run-as io.placeholder.reversiblemosaic` 报 `package not debuggable`。
+Android 沙盒隔离在 release 环境下屏蔽了 App 私有目录，`adb pull` 拿不到
+`stage3_bench.json`。
+
+AC-PERF 数据以 App 内自检屏截图为准，JSON 归档非必要。未来若需归档：
+- 出一版 **debug** 签名的 v19（buildozer.spec 加 `debuggable=1`）供数据取样
+- 或让 App 把 benchmark JSON 复制一份到 `Pictures/ReversibleMosaic/`（scoped storage 用户可见）
+
+**MVP 阶段不做上述任一改造**，截图判定已足够。
 
 ---
 

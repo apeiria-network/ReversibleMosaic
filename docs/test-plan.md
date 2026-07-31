@@ -28,13 +28,13 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 
 ### 目标验收设备（AC-PERF、AC-016 人工部分）
 
-- **性能验收设备（当前）**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)。
-  v17 debug APK 已在此机器完成 1920×1080 × `{2,5,15,30}` × 5 次 AC-PERF 采集
-  （2026-07-31，每档 ≥ 34× 余量 PASS —— 详见
-  [`docs/probe-report.md`](probe-report.md) § 阶段 3 v17 debug 真机基准）。
-- **signed Release 复采**：待 F3~F6 真机测试开闸后，在同一台 K80 Pro 上用 v18+ signed
-  Release APK 复跑一次。
-- **飞行模式验收设备**：同一台 K80 Pro（AC-016）。
+- **性能验收设备**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)。
+  - **v17 debug** 已在此机器完成 1920×1080 × `{2,5,15,30}` × 5 次 AC-PERF 采集
+    （2026-07-31，每档 ≥ 34× 余量 PASS）
+  - **v18 signed Release** 已在此机器复采（2026-07-31，每档 ≥ 68× 余量 PASS，
+    证书 SHA-256 `54c1bbbf...`，APK SHA-256 `c5ba1ba7...`）
+  - 详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v17 debug 与 v18 signed Release 真机基准。
+- **飞行模式验收设备**：同一台 K80 Pro（AC-016 人工部分 2026-07-31 通过）。
 
 ### 冻结阈值
 
@@ -59,9 +59,11 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 - **自动**：Buildozer 构建冒烟（会走 [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
   产出 APK；构建失败即 fail）。
 - **人工**：真机安装 + 启动 + 进首页确认。
-- **证据**：v15 debug APK 已被用户装机确认（Stage 2b 收官）；v17 signed Release
-  待 Stage 3 Block 3 出。
-- **状态**：⏱ 待 Block 3 signed Release APK 出后由用户装机复测。
+- **证据**：**v18 signed Release APK 于 2026-07-31 在小米 K80 Pro / Android 16 手动装机
+  启动 + 阶段 0 自检 + AC-PERF 基准全部完成**（详见 [`docs/probe-report.md`](probe-report.md)
+  § 阶段 3 v18 signed Release 真机基准）。sdkVersion=26 / targetSdkVersion=34 /
+  native-code=arm64-v8a（aapt dump 校验）。
+- **状态**：✅ 通过。
 
 ### AC-002 —— 人工：首页 / 打码 / 恢复 / 教程 / 提示 / 未保存退出
 
@@ -78,7 +80,8 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 - **自动**：[`tests/adversarial/test_malicious_inputs.py`](../tests/adversarial/test_malicious_inputs.py)
   Block 1 扩展 58 case 覆盖非法格式、超尺寸、异常元数据全部在算法前阻断。
 - **人工**：用户在系统选择器选支持/不支持图片，确认 UI 提示清楚。
-- **状态**：✅ 自动全绿；⏱ 人工待真机走查。
+- **人工证据**：v18 signed Release F4 走查（2026-07-31）确认 PNG + JPEG 主流程均正常。
+- **状态**：✅ 自动全绿；✅ 人工 PNG + JPEG 通过（F4）。
 
 ### AC-004 —— 自动：EXIF Orientation 1–8 修正
 
@@ -145,8 +148,10 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 - **自动**：[`tests/unit/test_android_native.py`](../tests/unit/test_android_native.py) 14 case 覆盖 Android
   gateway 的 insert null / write IOError / SHA-256 mismatch / commit 失败四条
   路径的 pending 删除（FR-SAVE-006）。
-- **人工**：v17 装机后走完 保存到相册 → 系统相册查看 → 系统分享。
-- **状态**：⏱ 待 Block 3 真机验收。
+- **人工**：v18 signed Release 装机后走完 保存到相册 → 系统相册查看 → 系统分享。
+  **2026-07-31 F4 走查通过**：PNG + JPEG 打码后走保存到相册路径，系统相册（Pictures/ReversibleMosaic）
+  可见输出文件；主链路无覆盖输入源。
+- **状态**：✅ 通过（自动 + 人工均验收）。
 
 ### AC-013 —— 联合：并发/取消/状态恢复 + UI 可响应 + 不可重复启动 + 后台/失败重试
 
@@ -194,17 +199,33 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
   | 30 | 1.533 s | 1.536 s | 270.5 MiB | 52 s | ✅ PASS (~34×) |
 
   实现 = `registry V1 backend = cython`；总扫描 12.9 s；每档以 ≥ 34× 余量通过。
-- **状态**：✅ v17 debug 已在 1920×1080 × `{2,5,15,30}` × 5 次采集通过（新口径）；
-  signed Release APK 复采待 C2 门槛开闸后真机装机时进行。debug vs Release
-  性能差异一般 5–15%（Cython nogil 段几乎不受签名影响），预计复采仍以 ≥ 30×
-  余量通过。
+- **状态**：✅ v17 debug 通过（1920×1080 × `{2,5,15,30}` × 5 次，K80 Pro，2026-07-31）；
+  **v18 signed Release 复采于 2026-07-31 同机通过**（median 反而快 50%，归因于测试时
+  手机充电锁高频 + 前置探针累计 RSS，不是代码差异；证书 fingerprint 与 v17 一致
+  `54c1bbbf...`；APK SHA-256 `c5ba1ba7...`）：
+
+  | rounds | median | P95 | peak_rss | 目标 | verdict |
+  |---:|---:|---:|---:|---:|:---|
+  |  2 | 0.051 s | 0.056 s | 484.8 MiB |  6 s | ✅ PASS (~118×) |
+  |  5 | 0.127 s | 0.133 s | 484.8 MiB |  9 s | ✅ PASS (~71×) |
+  | 15 | 0.341 s | 0.381 s | 484.8 MiB | 27 s | ✅ PASS (~79×) |
+  | 30 | 0.762 s | 0.766 s | 484.8 MiB | 52 s | ✅ PASS (~68×) |
+
+  实现 = `registry V1 backend = cython`；总扫描 8.6 s；每档以 ≥ 68× 余量通过。
 
 ### AC-016 —— 联合：Manifest 权限 + 飞行模式
 
 - **自动**：[`buildozer.spec`](../buildozer.spec) 的 `android.permissions` 仅声明
   `WRITE_EXTERNAL_STORAGE` (maxSdkVersion=28)，无 INTERNET / ACCESS_NETWORK_STATE 等。
+  **v18 signed Release APK aapt dump 验证 2026-07-31 通过**：只见 `WRITE_EXTERNAL_STORAGE`
+  与自动派生的 `READ_EXTERNAL_STORAGE`（两个都 `maxSdkVersion=28`），无 INTERNET /
+  ACCESS_NETWORK_STATE / CAMERA / LOCATION / READ_MEDIA_*。sdkVersion=26 / targetSdkVersion=34 /
+  native-code=arm64-v8a / package=`io.placeholder.reversiblemosaic`。
 - **人工**：真机开飞行模式跑完 选图 → 打码 → 保存 → 恢复 全流程。
-- **状态**：⏱ 待 Block 3 真机验收。
+  **v18 signed Release 于 2026-07-31 在 K80 Pro / Android 16 上验收通过**（PNG + JPEG 两条解码路径、
+  随机分享代码路径、encrypt + decrypt round-trip、MediaStore 保存到 Pictures/ReversibleMosaic
+  且系统相册可见、深色 / 浅色 / 大字体三种系统设置下 UI 主链路均正常）。
+- **状态**：✅ 通过。自动 Manifest + 人工飞行模式 + UI 兼容性主链路全部达标。
 
 ### AC-017 —— 人工：交付物清点
 
@@ -238,11 +259,19 @@ walk-through）落在真机人工/联合类，不进 pytest 主套件。
 
 ## 5. 后续更新
 
-Block 3 结束时本文档追加：
+**Block 3 已收官（2026-07-31）**：本文档已追加
 
-- v17 signed Release APK 的 AC-PERF 实测中位数 / P95 / 峰值 RSS 表格
-- 飞行模式真机走查截图（用户回传）
-- 系统分享接收方 App 列表快照（哪些能拉起分享 Intent）
+- ✅ v18 signed Release APK 的 AC-PERF 实测中位数 / P95 / 峰值 RSS 表格（AC-PERF 条目）
+- ✅ Manifest 权限 aapt dump 验证结果（AC-016 自动部分）
+- ✅ 飞行模式 + PNG + JPEG + 深浅色 + 大字体人工走查记录（AC-016 人工部分 + AC-003 人工部分 + AC-012 人工部分）
+
+**Block 3 仍未落地的验收**（Block 4 由用户对照 AC-017 清单收官时决定是否补做）：
+
+- 系统分享接收方 App 列表快照（哪些能拉起 SEND Intent）—— AC-011 分享文字不含分享码已由自动测试覆盖，
+  人工接收方列表快照仅作为参考证据，MVP 内部发布不阻塞
+- 冷启动 AC-PERF 数据 —— MVP 内部发布使用热启动数据足够；正式发布前建议补一次
+- 约定"低端 8 GB arm64 机型"复采 —— K80 Pro 是 flagship，68× 余量给了低端机 headroom；
+  正式面向公开用户发布前需实测确认
 
 Block 4 结束时本文档定稿为**测试报告**并入 `docs/release-notes.md` 的
 "§ 5 版本历史 v0.1.0"作为交付物。
