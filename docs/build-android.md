@@ -283,6 +283,16 @@ adb shell run-as io.placeholder.reversiblemosaic cat files/stage3_bench.json > s
 - **NumPy 2.3.0 `unique.cpp` 缺 `<unordered_map>` include**：本地 recipe override
   在 [`scripts/p4a_local_recipes/numpy/`](../scripts/p4a_local_recipes/numpy/) 里
   自动应用 patch。
+- **Windows git `core.autocrlf=true` 把 `.sh` 转 CRLF → WSL bash 炸**（Stage 3 Block 3
+  收官时事故）：Claude Code 从 Windows 侧 Edit 出的 `.sh` 用 LF 落盘，但用户后续
+  `git checkout` 到新分支时 git 的 `core.autocrlf` 归一化把 LF 转 CRLF，`bash`
+  读到 `set -euo pipefail\r` 时把 `pipefail\r` 当成非法选项名报 `invalid option name`，
+  且 `\r` 在终端里让光标回行首覆盖显示，错误信息看上去像随机乱码。**根本解**：
+  根目录 `.gitattributes` 已锁定 `*.sh`/`*.py`/`*.pyx`/`*.pxd`/`buildozer.spec`/
+  `*.toml`/`requirements*.lock` 走 `text eol=lf`，`*.png`/`*.jks`/`*.apk`/`*.so`
+  显式标 `binary`。**紧急恢复**：`sed -i 's/\r$//' scripts/*.sh` 是幂等的，任何时候
+  怀疑 CRLF 复发都可以直接跑（不改 `core.autocrlf` 全局配置）。事故复盘详见
+  [`stage3-block3-problems.md`](../stage3-block3-problems.md) § 4.7.2。
 
 如果新一次冷启动构建报错，先看 [`docs/source-index.md`](source-index.md) § Android
 打包障碍与已实施对策 —— 那里记录了每一条对策的详细来龙去脉。

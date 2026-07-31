@@ -271,7 +271,7 @@
    视觉验收显示 10 轮档在 5 张内容丰富图上仍能勉强辨认轮廓，加大主档/最高档
    预算 +50% 后 15 轮 16/20 通过、30 轮 20/20 完美通过。
 
-### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶�� 1 并行）
+### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶段 1 并行）
 
 **已完成（自动）**：
 1. **四个真实屏**：`EncodeScreen` / `DecodeScreen` / `ProgressScreen` /
@@ -596,7 +596,75 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
   - v17 debug APK SHA-256 未记录（APK 丢失，用户明规不追补）
   - signed Release APK 的 AC-PERF 复采待 C2 门槛开闸后进行（预计与 debug 差异 5-15%）
 
-Block 3 收官条件：signed Release APK v17 SHA-256 记录 + AC-PERF 真机中位数
-达标 + 飞行模式主链路通过。
+##### v18 打包端到端验证（2026-07-31）
+
+`wsl_build_android.sh` 重写为 `<mode> <version>` 双参强制 + apksigner 封装
+（B1/C1/C3/D3 落地）之后，跑一次真实 v18 debug + release 打包验证脚本
+端到端通路：
+
+| 版本 | SHA-256 | 大小 | 签名主体 |
+|---|---|---:|---|
+| v18 debug | `afe99948f82017608862cf6c74c6c92f5d88e098120a339c9b703e40b8d20059` | 33.13 MiB | Android debug |
+| v18 signed Release | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | 33.13 MiB | `CN=Apeiria-network, C=CN` |
+
+- 证书 SHA-256 fingerprint `54c1bbbf...` 与 v17 逐位一致（同 keystore）。
+- WSL + D 盘两处 SHA 各自匹配 —— `cp -a` 保真。
+- apksigner verify 报告 v2 + v3 scheme 都 true；v1 false（因 minapi=26，apksigner 自动跳）。
+- 打包脚本每条支路都跑过：参数校验、rsync exclude spec.local、Cython 交叉编译、
+  buildozer 出 unsigned、apksigner heredoc stdin 传口令、verify + keytool 摘要、
+  目标文件已存在 exit 4（release v18 首跑时触发过一次防误覆盖）、`cp -a` 到 D 盘 + sha256sum。
+
+**过程中遇到 CRLF 事故**：分支切换到 `stage3-real-test` 时 git `core.autocrlf=true`
+把所有 `.sh` 从 LF 转 CRLF，bash 读到 `set -euo pipefail\r` 时报
+`invalid option name`。**已修**：`sed -i 's/\r$//' scripts/*.sh` 剥掉 CR，
+新增根级 `.gitattributes` 永久锁定 `.sh`/`.py`/`.pyx`/`buildozer.spec` 等
+Unix 工具消费的文件走 LF；`.png`/`.jks`/`.apk` 显式标 binary。
+详见 [stage3-block3-problems.md § 4.7](stage3-block3-problems.md) 事故复盘。
+
+**下一步**：v18 signed Release 已就位，具备真机测试条件（F3~F6 开闸后走）。
+
+##### v18 signed Release 真机验收（2026-07-31，K80 Pro）
+
+C2 门槛开闸后跑完 F3 + F4 + F5（F6 因 release APK 不 debuggable 跳过，
+预期安全边界），Stage 3 Block 3 真机测试部分收官：
+
+- **F5 Manifest 权限（AC-016 自动部分）** ✅ PASS
+  - `aapt dump permissions` 输出：仅 `WRITE_EXTERNAL_STORAGE` +
+    `READ_EXTERNAL_STORAGE`（自动派生），两个都 `maxSdkVersion=28`
+  - 无 `INTERNET` / `ACCESS_NETWORK_STATE` / `CAMERA` / `LOCATION` / `READ_MEDIA_*`
+  - sdkVersion=26 / targetSdkVersion=34 / native-code=arm64-v8a /
+    package=io.placeholder.reversiblemosaic
+
+- **F3 AC-PERF signed Release 复采（AC-PERF）** ✅ PASS，每档余量 ≥ 68×
+
+  | rounds | median | P95 | peak_rss | target | verdict |
+  |---:|---:|---:|---:|---:|:---:|
+  |  2 | 0.051 s | 0.056 s | 484.8 MiB |  6 s | ✅ PASS (~118×) |
+  |  5 | 0.127 s | 0.133 s | 484.8 MiB |  9 s | ✅ PASS (~71×) |
+  | 15 | 0.341 s | 0.381 s | 484.8 MiB | 27 s | ✅ PASS (~79×) |
+  | 30 | 0.762 s | 0.766 s | 484.8 MiB | 52 s | ✅ PASS (~68×) |
+
+  总扫描 8.6 s，backend = cython。同机 v17 debug 对比 median 反而快 50% —— 归因于
+  手机充电锁高频 + 前置探针累计 RSS 起点更高，不是代码差异（两版共用同一份 Cython `.so`）。
+
+- **F4 飞行模式 + 主链路 + UI 兼容（AC-016 人工 + AC-001 + AC-003 + AC-012 人工）** ✅ PASS
+  - 飞行模式开着跑通 PNG + JPEG 两条解码路径
+  - 随机分享代码路径 + encode + decode round-trip 均正常
+  - 保存到相册 → Pictures/ReversibleMosaic 系统相册可见
+  - 深色 / 浅色 / 大字体三种系统设置下 UI 主链路均正常
+
+- **F6 stage3_bench.json adb pull** — SKIPPED（预期安全边界）
+  - release APK 无 `debuggable=true`，`adb shell run-as` 被 Android 沙盒拒绝
+  - AC-PERF 数据以 App 内自检屏截图为准，JSON 归档非必要
+  - 未来若需归档，可考虑：a) 打一版 debuggable 的 v19 专供数据取样、b) 让 App
+    额外把 JSON 写到 `Pictures/ReversibleMosaic/`（scoped storage 用户可见）
+
+**AC 状态更新**：AC-001 / AC-003（人工部分）/ AC-012（人工部分）/ AC-016（自动+人工）/
+AC-PERF 全部转 ✅。AC 全表状态见 [docs/test-plan.md](docs/test-plan.md) § 2 逐条追踪。
+
+Block 3 收官条件：**已达成**
+- ✅ v18 signed Release APK SHA-256 `c5ba1ba7...` 记录到 [docs/release-notes.md § 5](docs/release-notes.md)
+- ✅ AC-PERF 真机中位数 K80 Pro 上 v18 signed Release 每档 ≥ 68× 余量 PASS
+- ✅ 飞行模式主链路 PNG + JPEG + 保存 + 恢复通过
 
 

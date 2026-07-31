@@ -56,9 +56,28 @@
 
 ### 性能
 
-- 1920×1080 RGB 图片、Cython 加速内循环，30 轮真机中位数约 1.53 s（v7 debug
-  APK 数据外推，AC-PERF 目标 52 s 的 34× 余量）；峰值 RSS ~275 MiB。
+- 1920×1080 RGB 图片、Cython 加速内循环，v18 signed Release 在小米 K80 Pro /
+  Android 16 / RAM 16+6 GB 上真机中位数（2026-07-31 采集）：
+  - 2 轮 0.051 s / 5 轮 0.127 s / 15 轮 0.341 s / 30 轮 0.762 s
+  - AC-PERF 目标 6 / 9 / 27 / 52 s，每档余量 ≥ 68×
+  - 峰值 RSS 485 MiB（远低于 §10.1 60% 内存上限）
 - V1 Cython `.so` 交叉编译进 APK；PC 侧走 Python 参考实现兜底。
+- 详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v18 signed Release 真机基准。
+
+### MVP 真机验收（2026-07-31）
+
+v18 signed Release APK 在小米 K80 Pro / Android 16 上完成 Stage 3 Block 3 定义
+的 F3+F4+F5 三项真机测试：
+
+- **F3 AC-PERF 复采** ✅ 4 档全 PASS，最低余量 68×（30 轮 0.762 s vs 52 s 目标）
+- **F4 飞行模式 + 主链路** ✅ PNG + JPEG + 随机分享代码 + encode + decode +
+  保存到相册可见 + 深/浅色 + 大字体全部走通
+- **F5 Manifest 权限验证** ✅ aapt dump 确认仅 `WRITE_EXTERNAL_STORAGE` +
+  自动派生的 `READ_EXTERNAL_STORAGE`（都 maxSdkVersion=28），无 INTERNET /
+  ACCESS_NETWORK_STATE / CAMERA / LOCATION / READ_MEDIA_*
+
+对应 AC 条目 ✅ 状态：AC-001 / AC-003 / AC-012 / AC-016 / AC-PERF —— 见
+[`docs/test-plan.md`](test-plan.md) § 2 逐条追踪。
 
 ### 隐私
 
@@ -118,19 +137,26 @@
 | v15 debug (Stage 2b) | ~34 MiB | *(见 [`bin/`](../bin/) 目录 sha256sum)* | debug keystore (v1+v2) | Android debug | — |
 | v17 debug (Stage 3) | ~34 MiB | *(见 [`bin/`](../bin/) 目录 sha256sum)* | debug keystore (v1+v2) | Android debug | — |
 | **v17 signed Release** | **31.6 MiB** (33,115,120 B) | `546dc561005b2a02745d6ec10bdfdcc4cd46a33cd4c26f435e208a49919b0394` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
+| v18 debug (Stage 3 Block 3) | 33.13 MiB | `afe99948f82017608862cf6c74c6c92f5d88e098120a339c9b703e40b8d20059` | debug keystore (v1+v2) | Android debug | — |
+| **v18 signed Release** | 31.60 MiB (33,135,600 B) | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 
-**v17 signed Release 补充信息**：
+**v17 → v18 差异**：v18 是 v17 之后针对 Stage 3 Block 3 问题清单的收官版
+（B1 隔离 + C1/C3/D3 apksigner 封装 + `.gitattributes` LF 归一化）。**代码
+运行时逻辑无实质差异**（V1 冻结、Cython 内层、UI 主链路、Android gateway
+全部与 v17 同源）；`wsl_build_android.sh` 的重写不改变 APK 内容，只改变
+打包命令签名 + 签名封装步骤。v18 的 keystore 与 v17 相同（同 fingerprint
+`54c1bbbf...`），互相是可升级签名兼容的。
+
+**v17 / v18 signed Release 补充信息**：
 - 签名日期：2026-07-31（Stage 3 Block 3）
 - Key 算法：RSA-2048
 - Key alias：`reversiblemosaic`
 - 签名 keystore：`<项目>/keys/reversiblemosaic.jks`（内部自签，`.gitignore` 已排除；WSL 侧不留副本，`wsl_build_android.sh` 的 rsync 已加 `--exclude "keys/"`）
 - 证书 SHA-1 fingerprint：`46a3154a05571f416a0f4cd7ea795c19a65079fa`
 - 未启用签名方案：v1 (JAR)、v3.1、v3.2、v4、SourceStamp —— 均为可选，Android 8.0+ 装机仅需 v2 或 v3 之一。
-- **签名产物路径**：`bin/reversiblemosaic-0.1.0-arm64-v8a-release-v17.apk`（Windows 侧）与
-  `~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk`（WSL 侧，无版本后缀）
-- **签名流程说明**：buildozer 在当前配置下产出 `*-release-unsigned.apk`（即使
-  `buildozer.spec.local` 里有 signing config），需要额外用 Android SDK 的
-  `apksigner` 手工签名。命令详见 [`docs/build-android.md`](build-android.md) § 5.2。
+- **签名产物路径**：`bin/reversiblemosaic-0.1.0-arm64-v8a-release-<v17|v18>.apk`（Windows 侧）与
+  `~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release-<v17|v18>.apk`（WSL 侧，Stage 3 Block 3 起版本后缀由 `wsl_build_android.sh` 自动带上；v17 是手工加的后缀，WSL 侧 v17 原件曾无后缀）
+- **签名流程说明**：buildozer 在 WSL workspace 无 `buildozer.spec.local` 的情况下产出 `*-release-unsigned.apk`（Stage 3 Block 3 B1 隔离 + Q1 决策 C 的**预期行为**），后续签名由 `wsl_build_android.sh release <version>` 自动封装 apksigner：从 D 盘 `buildozer.spec.local` 只读读取凭据 → `--ks-pass stdin --key-pass stdin` 通过 heredoc 传入（不经命令行，不进 tee 日志）→ `apksigner verify` 校验 v2/v3 → `keytool -printcert` 打印证书摘要。命令详见 [`docs/build-android.md`](build-android.md) § 5.2。
 
 ---
 

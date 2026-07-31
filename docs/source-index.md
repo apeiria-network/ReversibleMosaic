@@ -1107,6 +1107,24 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 ### [`.gitignore`](../.gitignore)
 - 排除 `.venv/`、`.buildozer/`、`bin/`（APK 产物）、`.mypy_cache/` 等。
   **不要**把 `bin/` 从忽略里拿出来 —— APK 是构建产物，靠 SHA-256 追踪即可。
+- Stage 3 起加 `keys/`、`buildozer.spec.local`、`*.jks`、`*.keystore` 四条签名素材防线。
+
+### [`.gitattributes`](../.gitattributes)
+**Stage 3 Block 3 收官时新增**（2026-07-31 CRLF 事故的根本解）。
+锁定 Unix 工具消费的文件走 `text eol=lf`：`*.sh` / `*.py` / `*.pyx` / `*.pxd` /
+`buildozer.spec` / `*.toml` / `requirements*.lock` / `requirements*.txt`。
+显式标 binary：`*.png` / `*.jpg` / `*.jpeg` / `*.jks` / `*.keystore` / `*.apk` /
+`*.aab` / `*.so` / `*.pyd`。
+- **背景**：Windows 侧 git `core.autocrlf=true` 在 `git checkout` 切分支时会把
+  LF 文件转 CRLF 落盘。WSL 里 bash 读 `set -euo pipefail\r` 时把 `pipefail\r`
+  当非法选项，报 `invalid option name`；`\r` 让终端光标回行首覆盖显示，错误
+  信息看起来像随机乱码。事故记录见 [`stage3-block3-problems.md`](../stage3-block3-problems.md) § 4.7.2。
+- **改动指引**：
+  - **不要**改用户全局 `core.autocrlf` 配置（会污染他其他项目）。`.gitattributes` 是项目级方案。
+  - **不要**在 shell 脚本头部加防御性 `sed 's/\r$//'` —— hack；`.gitattributes` 是根本解。
+  - 新增文件类型需要 LF 时（比如 `.rs` / `.go` / 更多 shell 变体）：加到 `text eol=lf` 行。
+  - 新增二进制类型：显式加 `binary` 声明，不要指望 git 自动识别。
+  - **紧急恢复命令**：如果怀疑 CRLF 复发，`sed -i 's/\r$//' scripts/*.sh` 幂等，任何时候可以跑。
 
 ---
 
@@ -1122,18 +1140,20 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
   目标（API 34 / minapi 26 / arm64-v8a）、一次性准备、增量构建、Cython 交叉
   编译时序、APK 版本后缀命名、签名策略、已知障碍与对策全部落地。所有工具链
   升级必须同步这份文档。
-- [`docs/release-notes.md`](release-notes.md)：**Stage 3 Block 2 新增** ——
+- [`docs/release-notes.md`](release-notes.md)：**Stage 3 Block 2 新增，Block 3 收官时补齐** ——
   v0.1.0 MVP 内部签名 Release 发行说明。§1 版本身份与限制（applicationId
   占位 + 内部自签 keystore + 正式发布五步走）；§2-4 功能/限制/已知问题；§5
-  版本历史（Stage 0-3 全流程 + APK SHA-256 表格占位，Block 3 填充）；§6
-  **第三方组件与许可清单**（APK 内 14 项 + PC dev + 构建工具）；§7-8 用户
-  教程要点/支持反馈。
-- [`docs/test-plan.md`](test-plan.md)：**Stage 3 Block 2 新增** —— 测试计划
-  与 AC 追踪。§1 环境快照 + 冻结阈值；§2 AC-001~017 + AC-PERF 逐条 status
-  标记；§3 覆盖率汇总（250 passed / 21 skipped）；§4 §12.3 单人偏差豁免记录；
-  §5 Block 3/4 收官时追加的真机数据槽位。
-- [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据；阶段 3 冻结
-  时会把 1920×1080 真机耗时/内存写入。
+  版本历史（Stage 0-3 全流程 + v17/v18 signed Release APK SHA-256 + 证书
+  fingerprint + K80 Pro 真机验收记录）；§6 **第三方组件与许可清单**
+  （APK 内 14 项 + PC dev + 构建工具）；§7-8 用户教程要点/支持反馈。
+- [`docs/test-plan.md`](test-plan.md)：**Stage 3 Block 2 新增，Block 3 收官时刷新** ——
+  测试计划与 AC 追踪。§1 环境快照（K80 Pro 冻结）+ 冻结阈值；§2 AC-001~017 +
+  AC-PERF 逐条 status 标记（Block 3 收官后 AC-001 / AC-003 / AC-012 / AC-016 /
+  AC-PERF 全部转 ✅）；§3 覆盖率汇总（250 passed / 21 skipped）；§4 §12.3
+  单人偏差豁免记录；§5 Block 3 已收官清单 + Block 4 未落地项。
+- [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据。Stage 0 v5/v6
+  + Stage 1 v7 + Stage 3 v17 debug + Stage 3 v18 signed Release 四代 APK
+  真机数据全部入档；当前 AC-PERF 判定以 v18 signed Release (K80 Pro) 为准。
 - [`docs/source-index.md`](source-index.md)：**本文件**。
 
 根目录的 [`development_plan.md`](../development_plan.md) 是**执行基线** —— 阶段
