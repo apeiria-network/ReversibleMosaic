@@ -495,7 +495,11 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
    - 检查 keytool 存在（OpenJDK 17 前置）。
    - 已有 keystore 时提示不要覆盖（防止误删导致老 APK 无法升级）。
    - `keytool -genkeypair` RSA-2048，validity 10000 天，alias `reversiblemosaic`，
-     默认路径 `~/keys/reversiblemosaic.jks`（用户可 `KEYSTORE_FILE=` 覆盖）。
+     默认路径 `<项目>/keys/reversiblemosaic.jks`（`.gitignore` 已加目录级 `keys/`
+     拦截，永不入 git；`KEYSTORE_DIR=` / `KEYSTORE_FILE=` 环境变量可覆盖到项目外的
+     位置）。用户明规（Stage 3 Block 3）：所有密码/签名/keystore 相关内容禁止离开
+     D 盘工作目录、禁止拷贝进 C 盘 —— `scripts/wsl_build_android.sh` rsync 已加
+     `--exclude "keys/"` 保证 WSL 侧不留副本。
    - 交互式索取 CN/OU/O/L/ST/C 组装 DN；口令由 keytool 直接提示（不经脚本）。
    - keytool 完成后再次索取口令写入 `buildozer.spec.local`（`chmod 600`），
      buildozer 通过 `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd`
@@ -541,7 +545,7 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
 
 1. **【联合】生成 keystore**：用户在 PowerShell 里跑
    `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/generate_release_keystore.sh`，
-   交互式输入签名主体 DN + 口令；完成后备份 `~/keys/reversiblemosaic.jks`
+   交互式输入签名主体 DN + 口令；完成后备份 `<项目>/keys/reversiblemosaic.jks`
    到离线位置。
 2. **【联合】Release 构建**：keystore 就位后，用户跑
    `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release`，
