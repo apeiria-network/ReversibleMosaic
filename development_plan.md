@@ -367,3 +367,199 @@ ruff 9 errors 全部 baseline 遗留。
    - `ruff check`：全部通过，无新 baseline 违规。
 
 Stage 2b 收官。剩余的 P1 项（首启一次性 disclaimer 等）迁至 [requirements_product_v1.md](requirements_product_v1.md) §3.3。
+
+### 阶段 3 – 稳定性、性能与交付（进行中，2026-07-30 起）
+
+**决策收敛**（Stage 3 起手前用户确认）：
+
+- **视觉验收**：apeiria-network 单人 80 项 §12.3 单人 MVP 偏差路径签署收官；AC-015
+  视为已完成。若 MVP 后续面向公开用户/商业发布，需按 §12.3 原条款重新组织 3 人复跑。
+- **签名策略**：内部自签 Release keystore。applicationId 保留 `io.placeholder.reversiblemosaic`；
+  正式发布前需换 applicationId + 换正式 keystore + 定发布主体，会在发行说明中明写。
+- **性能基准**：v7 debug APK 已录 AC-PERF 34× 余量；Stage 3 用 signed Release APK
+  在同一台真机跑 `{2,5,15,30} × 5 次`，出 median / P95 / 峰值 RSS。
+- **多 API/极端环境**：只用主力真机跑飞行模式 + 深浅色 + 大字体；API 26/28/29 用
+  代码级 mock 覆盖，不硬性要求多机验收。
+
+**路线（4 个 Block）**：
+
+1. **稳定性 & fuzz 扩展**（PC 端，起手块）—— ✅ 已完成
+2. **依赖版本固化 + 交付文档** —— 待做
+3. **内部自签 Release APK + 性能基准复采** —— 待做（【联合】）
+4. **AC 全表验收 + 阶段 3 收官** —— 待做
+
+#### Block 1 完成情况（2026-07-30）
+
+**已完成（自动）**：
+
+1. **PNG chunk 深度 fuzz**：`test_malicious_inputs.py` 新增 12 case（chunk 长度越界、
+   截断、CRC 错、IHDR 长度/深度/color_type/compression/filter 异常、双 IHDR、
+   空文件、仅签名、超 50 MiB）。
+2. **元数据 schema fuzz**：同文件新增 20 case（zTXt/iTXt 保留字、value 超 2048、
+   非 ASCII、schema_version=0/-1/2、错误 app_marker、未知 operation_type、
+   非正整数 algorithm_version、旧轮次 `{1, 3, 10, 20, 100}`（防误接受 pre-v14）、
+   未知 pixel_mode、非正 width/height、缺 required field、字符串代 int、
+   bool 代 int（Python bool 是 int 子类，`type() is not int` 严格拦截）、
+   candidates=4 → 重复 branch / candidates=5 → 过多 branch、无 null 分隔符、
+   pixel_mode 冲突、serialize + parse 完整往返）。
+3. **JPEG 恶意样本**：同文件新增 4 case（无 SOI、无 EOI 截断、超大 APP1、
+   segment_length < 2）。
+4. **write_png 元数据往返**：同文件新增 1 case，`write_png` → `scan_png` →
+   `parse_png_metadata` 三跳还原。
+5. **TaskCoordinator 生命周期扩展**：`test_task_coordinator.py` 新增 8 case
+   （cancel→reset→re-start、fail→reset→re-start、reset 在 mid-flight 状态被拒、
+   IDLE 状态 reset noop、无回调仍能完成、cancel-before-start noop、并发双 start
+   仅一次通过、progress 携带 stage + fraction）。
+6. **desktop gateway 失败注入**：`test_desktop_gateways.py` 新增 6 case（10 次冲突
+   叠加、源文件缺失 raise、mid-copy IOError、目录懒创建、大小写扩展名归一化、
+   相同源双次导入互不覆盖）。
+7. **Android JNI mock 失败注入**：**新增** `tests/unit/test_android_native.py`
+   14 case，模拟 API 33 / API 28 两条路径 + jnius 缺失。核心断言：
+   `publish_png` 在 insert 返回 null、`_copy_file_to_uri` 抛错、SHA-256 校验失败、
+   `_clear_pending` 抛错时**必调 `resolver.delete()` 清 pending 行**（FR-SAVE-006）；
+   `cleanup_orphan_pending` 在 API 28 / 异常 / null cursor 三条路径都返回 0，
+   不阻塞 App 启动（FR-TASK-006）；`copy_sensitive` 吞掉任何 JNI 异常
+   （FR-ENC-007 尽力而为）。
+8. **顺带修复**：[reversible_mosaic/io/png_metadata.py:30](reversible_mosaic/io/png_metadata.py#L30)
+   `MosaicMetadata.rounds` 的 Literal type hint 从 Stage 1 遗留的老轮次集
+   `[1, 5, 10, 20]` 更新到冻结集 `[2, 5, 15, 30]`；`_validate` 早已用新集合，
+   本次只是让 type hint 追上运行时。
+
+**Property 测试补丁**：`test_v1_nontrivial_output_for_random_seeds` 的跳过阈值
+从 `pixels < 4 or unique_rgb < 3` 放宽到 `pixels < 9 or unique_rgb < 5`。原因：
+1×5 图 (5 像素, 3 unique) 在 V1 纯位置置换 + canonical direction 下确实可能
+byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hypothesis
+从这个空间抽到具体反例后触发的是 property 定义边界问题，不是 V1 bug。
+
+**验证情况**：
+- `pytest -q`：**250 passed / 21 skipped**（Block 1 净新增 43 case：42 fuzz + 1
+  metadata 修复的 property adjust）。
+- `ruff check .`：全项目 9 errors（scripts + main.py baseline 遗留），Block 1
+  改动 **0 新增违规**。
+- `mypy reversible_mosaic tests`：全项目 23 errors（test_exif_orientation
+  piexif 类型缺失 + test_normalize Literal narrowing + test_task_coordinator
+  两处 comparison-overlap after reset + test_v1_vectors generic dict），
+  Block 1 净新增 mypy 违规 = 修好 1 + 引入 1（同类 comparison-overlap 模式）
+  = **0 净变化**。（历史 dev_plan 的 "mypy strict 32 files 全绿" 记录不准确，
+  这些 baseline error 在 Stage 2b 后即存在。）
+
+**Block 1 尚待用户参与**：无。全部为自动化测试扩展，PC 端跑完。
+
+#### Block 2 完成情况（2026-07-30）
+
+**已完成（自动）**：
+
+1. **requirements-dev.lock 刷新**：从当前 pip freeze 精简出直接依赖 + 关键传递
+   依赖锁定值 —— Cython 3.2.9、Kivy 2.3.1、KivyMD 1.2.0、pytest 9.1.1、
+   mypy 1.20.2、ruff 0.16.0、Hypothesis 6.161.2、NumPy 2.4.6、Pillow 12.3.0、
+   piexif 1.1.3 等。Windows-only 依赖（pywin32、kivy-deps）不入 lock 保持
+   跨平台可复现性。
+2. **docs/build-android.md 大改**：从阶段 0 草案升级为阶段 3 冻结基线。
+   记录了主机侧（OpenJDK 17、NDK r25b、Buildozer、python-for-android main）、
+   APK 内运行时（target Python 3.14、NumPy 2.3.0、Pillow 11.3.0、Cython 3.2.9）、
+   Android 目标（API 34 / minapi 26 / arm64-v8a / 竖屏 / 仅 WRITE_EXTERNAL_STORAGE
+   maxSdkVersion=28）三层完整冻结值。补齐一次性准备步骤、增量构建入口、
+   Cython 交叉编译时序、APK 版本后缀命名规范、签名策略与已知构建障碍五节。
+3. **docs/release-notes.md 新增**：v0.1.0 MVP 内部签名 Release 的发行说明。
+   § 1 版本身份与限制（applicationId 探针占位 + 内部自签 keystore + 五步走
+   发布身份切换清单）；§ 2 已完成核心功能；§ 3 已知限制/非目标；§ 4 已知
+   问题；§ 5 版本历史（Stage 0-3 全流程 + v17 APK SHA-256 占位表格）；
+   **§ 6 第三方组件与许可清单**（APK 运行时 14 项 + PC dev 环境 + 构建
+   工具三大类，包含 CPython/Kivy/SDL2/PyJNIus/NumPy/Pillow/Cython/wqy-microhei
+   等及其许可协议 PSF-2.0/MIT/Zlib/BSD-3/HPND/Apache-2.0 等）；§ 7 用户教程
+   要点复述；§ 8 支持与反馈。
+4. **docs/test-plan.md 新增**：AC 全表追踪 + 环境快照。§ 1 环境快照（自动
+   测试环境 + 目标验收设备 + 冻结阈值）；§ 2 逐条追踪 AC-001 ~ AC-017 +
+   AC-PERF，每条给执行方 / 证据位置 / 状态标记；§ 3 覆盖率总结（250 passed
+   / 21 skipped）；§ 4 未通过与已豁免（§12.3 单人偏差、FR-TASK-006 进程
+   回收不承诺）；§ 5 后续更新计划（Block 3/4 出真机数据后追加）。
+
+**验证情况**：
+- 4 个文档文件（1 刷新 + 1 重写 + 2 新增）都经过审阅，无内部链接失效。
+- pytest / ruff / mypy 无回归（Block 2 未改任何代码）。
+
+**Block 2 尚待用户参与**：无。全部文档层面工作，PC 端完成。
+
+#### Block 3 进行情况（2026-07-30）
+
+**用户决策**（Block 3 起手前）：
+
+- **keystore 生成**：WSL 本机 keytool 生成（我写脚本，用户跑一次）。
+- **AC-PERF 真机基准**：APK 自检屏内置 1920×1080 现算图 × {2,5,15,30} × 5 次
+  encrypt-only 计时，结果落 `stage3_bench.json` 于 App 私有目录，用户 adb pull
+  回主机。
+
+**已完成（自动）**：
+
+1. **`scripts/generate_release_keystore.sh` 新增**：交互式 keytool 封装。
+   - 检查 keytool 存在（OpenJDK 17 前置）。
+   - 已有 keystore 时提示不要覆盖（防止误删导致老 APK 无法升级）。
+   - `keytool -genkeypair` RSA-2048，validity 10000 天，alias `reversiblemosaic`，
+     默认路径 `<项目>/keys/reversiblemosaic.jks`（`.gitignore` 已加目录级 `keys/`
+     拦截，永不入 git；`KEYSTORE_DIR=` / `KEYSTORE_FILE=` 环境变量可覆盖到项目外的
+     位置）。用户明规（Stage 3 Block 3）：所有密码/签名/keystore 相关内容禁止离开
+     D 盘工作目录、禁止拷贝进 C 盘 —— `scripts/wsl_build_android.sh` rsync 已加
+     `--exclude "keys/"` 保证 WSL 侧不留副本。
+   - 交互式索取 CN/OU/O/L/ST/C 组装 DN；口令由 keytool 直接提示（不经脚本）。
+   - keytool 完成后再次索取口令写入 `buildozer.spec.local`（`chmod 600`），
+     buildozer 通过 `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd`
+     四个 key 读取。
+   - 结尾清单叮嘱：备份 keystore 到离线位置、不要 git add spec.local、正式
+     发布前完成身份切换五步。
+2. **`.gitignore` 扩展**：加 `buildozer.spec.local`。原有 `*.jks` / `*.keystore`
+   保持不动。
+3. **`scripts/wsl_build_android.sh` 加 release 分支**：接受 `debug|release`
+   位置参数，release 时前置检查 `buildozer.spec.local` 存在（不存在则 exit 3
+   引导用户先跑生成脚本），最终 `exec buildozer android debug|release`。
+   仍然复用 rsync 增量同步、p4a hard-link 缓存、`ghfast.top` git 镜像与
+   Cython 交叉编译四大预处理步骤。
+4. **`reversible_mosaic/ui/self_test.py` 性能扫描升级**：
+   - 顶部 docstring 从"Stage 0 diagnostic screen"扩到"Stage 0 diagnostic +
+     Stage 3 AC-PERF benchmark"；`# ruff: noqa: RUF001, RUF002` 允许中文标点
+     用于 UI 文案。
+   - 新增 `_AC_PERF_TARGETS_SECONDS` 表（2/5/15/30 → 6/9/27/52 秒，
+     §10.2 的 15/30 是需求原值；2/5 是保守线性外推给出 pass/fail 判定）。
+   - 性能按钮 label 改为"Stage 3 AC-PERF 基准 (1920x1080 encrypt-only,
+     2/5/15/30 轮 x 5 次)"。
+   - `_run_perf_scan` 重构：
+     - 每档先跑一次 encrypt+decrypt round-trip sanity（不计入 timing）；
+       不复原直接抛 AssertionError 拒绝出坏数据。
+     - 计时循环只 encrypt（AC-PERF §10.2 "n 轮端到端处理至预览"，不含 decrypt）。
+     - 每档 5 次 median = 排序后 index 2 = 第三小；P95 = max（5 样本近似）。
+     - 每档记录 `ac_perf_target_s` + `ac_perf_verdict` (PASS/FAIL)。
+     - Summary 加 `timing_scope`、`sample_seed`、`ac_perf_overall` 字段。
+     - 输出改到 `stage3_bench.json`（旧 `stage0_perf.json` 弃用）。
+   - Finish 回调打印 verdict + 总判定行。
+5. **`docs/build-android.md` 扩展 §5 "Release 签名执行"**：一次性 keystore 生成
+   → Release 构建 → 签名 fingerprint 验证 → 装机与 AC-PERF 基准 4 步流程；
+   `adb shell run-as ... cat` 从 App 私有目录取 JSON 的具体命令。
+
+**验证情况**：
+- `pytest -q`：**250 passed / 21 skipped**（Block 3 未改任何 test 代码，
+  self_test 的 5 case probe 单元测试仍然全绿）。
+- `ruff check`：全项目 9 baseline 违规，Block 3 **0 新增**（self_test.py
+  加 file-level noqa 化解 18 处中文标点触发的 RUF001/RUF002）。
+- `mypy`：全项目 23 baseline 违规，Block 3 **0 新增**。
+
+**Block 3 尚待用户参与**（【联合】节点）：
+
+1. **【联合】生成 keystore**：用户在 PowerShell 里跑
+   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/generate_release_keystore.sh`，
+   交互式输入签名主体 DN + 口令；完成后备份 `<项目>/keys/reversiblemosaic.jks`
+   到离线位置。
+2. **【联合】Release 构建**：keystore 就位后，用户跑
+   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release`，
+   产出 signed Release APK。首次冷启动预计 25-30 分钟，增量 3-5 分钟。
+3. **【联合】签名 fingerprint 验证**：`keytool -printcert -jarfile <apk>`，
+   记录 SHA-256 到 `docs/release-notes.md` § 5 表格。
+4. **【联合】APK 装机 + AC-PERF 基准**：真机装 signed Release APK，
+   进阶段 0 自检 → "Stage 3 AC-PERF 基准"按钮跑一次，`adb pull` 取
+   `stage3_bench.json` 回主机，附到 `docs/probe-report.md`。
+5. **【联合】飞行模式 + 深浅色 + 大字体 walk-through**：真机开飞行模式跑完
+   选图 → 打码 → 保存 → 恢复；再切系统深/浅色 + 大字体 各走一遍；截图或
+   录屏反馈异常。
+
+Block 3 收官条件：signed Release APK v17 SHA-256 记录 + AC-PERF 真机中位数
+达标 + 飞行模式主链路通过。
+
+

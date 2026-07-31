@@ -45,6 +45,14 @@ android.logcat_filters = *:S python:D SDL:D SDLActivity:D AndroidRuntime:E
 # location, or camera permissions requested (FR-TASK-007, §11.3).
 android.permissions = (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=28)
 
+# Stage 3 Block 3: buildozer defaults `android release` to AAB (Google Play
+# bundle format). AAB is Play Store-only — you can't `adb install` it and it
+# can't be distributed as a plain download. AC-001 / AC-012 / AC-016 all
+# require a directly-installable signed APK, so force APK output. Our target
+# is a single ABI (arm64-v8a) with no resource splits, so AAB gains us
+# nothing anyway.
+android.release_artifact = apk
+
 # Local recipe override for numpy 2.3.0 — adds a patch for the missing
 # <unordered_map> include that Android NDK r25b clang-14 + libc++ trips over.
 # Path is resolved inside the WSL workspace (matches wsl_build_android.sh rsync

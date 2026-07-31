@@ -649,35 +649,48 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 - 仅 docstring `"""UI-layer helpers (view models + Kivy screens)."""`。
 
 ### [`ui/self_test.py`](../reversible_mosaic/ui/self_test.py)
-- **作用**：**阶段 0 临时诊断屏**。5 个探针按钮（pyjnius / numpy / pillow /
-  V1 参考实现透明 RGBA / V1 Cython 优化）+ 性能扫描按钮 + 取消按钮 +
-  可滚动结果 TextInput。用于在真机上验证每个 arm64 原生依赖打包 +
-  加载 + 运行是否正常。阶段 0 退出后从首页删入口（`app.py` 里 
-  `"阶段 0 自检 (临时)"` Button），本模块保留以做回归。
+- **作用**：**阶段 0 探针屏 + Stage 3 AC-PERF 基准入口**。5 个探针按钮
+  （pyjnius / numpy / pillow / V1 参考实现透明 RGBA / V1 Cython 优化）+
+  Stage 3 基准按钮 + 取消按钮 + 可滚动结果 TextInput。**Stage 3 Block 3
+  升级**：性能扫描从"encrypt+decrypt 计时 / 输出 stage0_perf.json"改为
+  "encrypt-only 计时 / 输出 stage3_bench.json / 加 AC-PERF pass/fail 判定"。
 - **导出**：
   - `SelfTestScreen(Screen)`：程序化构建 widget 树（不用 KV），
-    在 `__init__` 里挂 5 个探针按钮 + 性能扫描 + 取消 + 清空结果 + 返回首页。
-    perf 扫描跑 `threading.Thread`，通过 `Clock.schedule_once` 回主线程更新
+    在 `__init__` 里挂 5 个探针按钮 + Stage 3 基准 + 取消 + 清空结果 + 返回首页。
+    基准跑 `threading.Thread`，通过 `Clock.schedule_once` 回主线程更新
     Label；取消用 `threading.Event`。
   - `SYNC_PROBES`：`(label, callback)` 列表，同步探针；每项独立可点。
   - 模块级探针函数（下划线开头，测试可直接调用）：
     `_probe_pyjnius / _probe_numpy / _probe_pillow /
     _probe_reference_v1 / _probe_v1_cython`。
+  - `_AC_PERF_TARGETS_SECONDS`：Stage 3 §10.2 每档目标（2:6s / 5:9s /
+    15:27s / 30:52s）。15/30 是需求原值，2/5 是保守线性外推。
   - 辅助：`_peak_rss_bytes()`（stdlib `resource` 优先, fallback
     `/proc/self/status`）、`_fmt_bytes()`。
-- **数据落盘**：性能扫描完成时写 `{App.user_data_dir}/stage0_perf.json`
-  （字段：implementation、resolution、rows[rounds/iterations/median_s/p95_s/
-  peak_rss_bytes]、cancelled、timestamp、python、machine）。
+  - `# ruff: noqa: RUF001, RUF002`（file-level）—— UI 中文文案允许全角标点。
+- **AC-PERF 基准逻辑**（Stage 3 Block 3）：
+  - 输入：1920×1080 8 位 RGB，`np.random.default_rng(seed=12345)` 生成，
+    跨机器/跨构建可复现。
+  - 每档先跑一次 encrypt→decrypt round-trip sanity（**不计入 timing**），
+    不复原直接抛 AssertionError，拒绝以损坏管线出基准数据。
+  - 计时循环只 encrypt（AC-PERF §10.2 "n 轮端到端处理至预览"，不含 decrypt）。
+  - 每档 5 次：median = 排序 index 2，P95 = max（5 样本近似）；每档记录
+    `ac_perf_target_s` + `ac_perf_verdict` (PASS/FAIL)。
+- **数据落盘**：基准完成时写 `{App.user_data_dir}/stage3_bench.json`
+  （字段：implementation、backend、resolution、timing_scope、sample_seed、
+  rows[rounds/iterations/median_s/p95_s/peak_rss_bytes/ac_perf_target_s/
+  ac_perf_verdict]、ac_perf_overall、cancelled、timestamp、python、machine）。
+  真机上用 `adb shell run-as io.placeholder.reversiblemosaic cat files/stage3_bench.json`
+  取回主机存档到 `docs/probe-report.md`。
 - **谁用它**：`app.py` import + 首页 "阶段 0 自检 (临时)" 按钮跳转；
   `tests/unit/test_self_test_probes.py` 覆盖 PC 端可跑的 4 个探针。
 - **改动指引**：
   - **临时模块**，不要在这里放生产逻辑；生产屏（EncodeScreen 等）走 view_models。
   - 加新探针：在 `SYNC_PROBES` 追加 `("标签", _probe_xxx)`；探针必须
     返回字符串或抛异常 —— UI 侧统一 catch。
-  - 性能扫描目前跑 256x256 reference —— 阶段 1 把 Cython 接到 pipeline
-    后可换成 1920x1080 optimized。
+  - 改 AC-PERF 目标：只改 `_AC_PERF_TARGETS_SECONDS`，同步 §10.2 需求档。
   - 阶段 0 退出后：只删 `app.py` 里的 HomeScreen 按钮和 KV `SelfTestScreen:`
-    条目；保留本文件供回归。
+    条目；保留本文件供回归 + AC-PERF 基准入口。
 
 ---
 
@@ -714,14 +727,15 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 | [`test_exif_orientation.py`](../tests/unit/test_exif_orientation.py) | `io/normalize.py` JPEG EXIF | Orientation 1–8 都正确 transpose |
 | [`test_algorithm_v1.py`](../tests/unit/test_algorithm_v1.py) | `algorithm/reference_v1.py` | 边缘尺寸、Alpha 保真、非法输入 |
 | [`test_pipeline.py`](../tests/unit/test_pipeline.py) | `core/pipeline.py` | encrypt→decrypt 闭环、stage 顺序、cancel 传递 |
-| [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset |
+| [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset；Stage 3 Block 1 新增 8 case：cancel→reset→re-start、fail→reset→re-start、reset 在 mid-flight 被拒、IDLE reset noop、无回调仍完成、cancel-before-start noop、并发双 start 仅一次通过、progress 携带 stage + fraction（共 12 case） |
 | [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射、Stage 2b 的 ResultSnapshot save 状态转换 |
 | [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
 | [`test_optimized_v1.py`](../tests/unit/test_optimized_v1.py) | `algorithm/optimized_v1.py` + `algorithm/v1.pyx` | reference vs Cython 逐字节比对；Windows 无 Cython 时整个模块 skip |
 | [`test_quality.py`](../tests/unit/test_quality.py) | `algorithm/quality.py` | §12.3.3 三项指标：恒等/全变/纯色/RGBA/scrambled 各场景 |
 | [`test_input_hint.py`](../tests/unit/test_input_hint.py) | `ui/input_hint.py` | PNG/JPEG/异常/元数据解析共 8 case |
 | [`test_output_naming.py`](../tests/unit/test_output_naming.py) | `domain/output_naming.py` | Stage 2b: `_mosaic/_reversal_mosaic` 后缀、`_1/_2` 递增、reserved 字符 sanitize、Windows 路径注入防护 |
-| [`test_desktop_gateways.py`](../tests/unit/test_desktop_gateways.py) | `android/desktop.py` | Stage 2b: DesktopOutputGateway 冲突计数、DesktopInputGateway import、DesktopClipboardGateway noop |
+| [`test_desktop_gateways.py`](../tests/unit/test_desktop_gateways.py) | `android/desktop.py` | Stage 2b: 冲突计数、input gateway 导入；Stage 3 Block 1: 10 次冲突叠加、源文件缺失 raise、mid-copy IOError、目录懒创建、大小写扩展名归一化、相同源双次导入互不覆盖（共 11 case） |
+| [`test_android_native.py`](../tests/unit/test_android_native.py) | `android/native.py`（JNI mock） | **Stage 3 Block 1 新增**：14 case。构造 gate 检查（jnius 缺失时 raise）；`publish_png` 失败注入 —— insert 返回 null、write IOError、SHA-256 mismatch、commit 抛错时**必删 pending 行**（FR-SAVE-006）；API 28 skip `_unique_display_name` query；`cleanup_orphan_pending` 在 API 28 / 异常 / null cursor 都返回 0（FR-TASK-006）；`copy_sensitive` 吞 JNI 异常（FR-ENC-007）。 |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言
@@ -729,8 +743,13 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`tests/property/`](../tests/property/)
 - [`test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)：
   Hypothesis 生成 `(w, h, mode, seed, rounds)`，断言
-  `decrypt(encrypt(x)) == x`、确定性、非平凡输出（≥2 pixel + ≥3 unique RGB）。
+  `decrypt(encrypt(x)) == x`、确定性、非平凡输出。
   2/5 轮走 80 例，15/30 轮走 12 例，是 V1 冻结前"打不同种子跑不出 bug"的主要防线。
+  **Stage 3 Block 1 调整**：`test_v1_nontrivial_output_for_random_seeds`
+  跳过阈值从 `pixels < 4 or unique_rgb < 3` 放宽到 `pixels < 9 or unique_rgb < 5`。
+  V1 是纯位置置换 + palette preserve，极小图片（如 1×5 with 3 unique）在 canonical
+  direction swap 下可能给出 byte-identical 输出，属于 §12.3.5 "低信息图片仅验收
+  可逆性" 范围。
 
 ### [`tests/vectors/`](../tests/vectors/)
 - [`generate_v1_vectors.py`](../tests/vectors/generate_v1_vectors.py)：合成
@@ -744,8 +763,26 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   冻结后重跑 = 破坏冻结。
 
 ### [`tests/adversarial/test_malicious_inputs.py`](../tests/adversarial/test_malicious_inputs.py)
-- 恶意 PNG/JPEG 拒绝测试：伪造尺寸、异常 EXIF、chunk 截断、超大文本、
-  非白名单 color_type、动画 PNG 等，全部应抛 `ImageProbeError`。
+- 恶意 PNG/JPEG + 元数据 fuzz 拒绝测试。所有失败路径都必须落回 `ImageProbeError`
+  或 `MetadataStatus.INVALID` / `CONFLICT`，绝不允许崩溃或半文件泄漏。
+- **Stage 3 Block 1 大幅扩展**（原 12 case → 58 case）：
+  - **PNG chunk 深度 fuzz**（12 case）：chunk 长度越界、data 截断、CRC 错、
+    IHDR 长度/深度/color_type/compression/filter 异常、双 IHDR、空文件、
+    仅签名、超 50 MiB。
+  - **元数据 schema fuzz**（20 case）：zTXt/iTXt 保留字拒收、value 超 2048、
+    非 ASCII、schema_version=0/-1/2、错误 app_marker、未知 operation_type、
+    非正整数 algorithm_version、旧轮次 `{1, 3, 10, 20, 100}` 拒收（防误接���
+    pre-v14 元数据）、未知 pixel_mode、非正 width/height、缺 required field、
+    字符串代 int、bool 代 int（Python bool 是 int 子类，靠 `type() is not int`
+    严格拦截）、4 candidates → 重复 branch / 5 candidates → 过多 branch、
+    无 null 分隔符、pixel_mode 冲突、serialize + parse 完整往返。
+  - **JPEG 恶意样本**（4 case）：无 SOI、无 EOI 截断、超大 APP1、
+    segment_length < 2。
+  - **write_png 元数据往返**（1 case）：`write_png` → `scan_png` →
+    `parse_png_metadata` 三跳还原验证。
+- **改动指引**：新增拒绝理由时同步 `io/probe.py` 或 `io/png_metadata.py` 里对应
+  的 `raise`，并追加 case 到对应分组。测试名前缀 `test_png_` / `test_metadata_`
+  / `test_jpeg_` / `test_write_png_` 已按范围分开，加新 case 时保持归位。
 
 ---
 
@@ -829,7 +866,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 
 #### [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
 Buildozer 打包主入口，**只在 WSL Ubuntu 里跑**（`wsl -d Ubuntu -- bash
-scripts/wsl_build_android.sh`）。做的事：
+scripts/wsl_build_android.sh [debug|release]`）。做的事：
 1. 杀掉遗留的 `buildozer` / `python-for-android` 进程（不含自身 PID）。
 2. **增量** `rsync -a --delete --exclude ".buildozer/"` 从 Windows 侧
    同步源码到 `/home/hydrogen/src/ReversibleMosaic/`。**关键**：保留
@@ -840,13 +877,46 @@ scripts/wsl_build_android.sh`）。做的事：
 4. 通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 把 recipe 里
    `https://github.com/*` clone 重定向到 `https://ghfast.top/https://github.com/*`
    镜像 —— **每次调用生效，不改用户 `~/.gitconfig`**。
-5. `cd $WORKSPACE && exec buildozer android debug`，同步写日志到
+5. **Stage 3 Block 3 新增 release 分支**：位置参数默认 `debug`；`release`
+   时前置检查 `buildozer.spec.local` 存在（不存在 exit 3 引导用户先跑
+   `generate_release_keystore.sh`），最终 `exec buildozer android <mode>`。
+6. `cd $WORKSPACE && exec buildozer android <mode>`，同步写日志到
    `/home/hydrogen/src/reversible-mosaic-build.log`。
 
 **改动指引**：
 - **绝对不要**恢复 `rm -rf $WORKSPACE` —— 每轮都会从零重编 CPython。
 - 不要动用户全局 git config；用现有的 `GIT_CONFIG_*` 环境变量方式。
 - 加新的镜像可以直接改脚本里 `GIT_CONFIG_VALUE_0`。
+- 加新的 build mode（如 `test` / `aab`）：在顶部 `case` 里追加，后面 buildozer
+  命令原样透传。
+
+#### [`scripts/generate_release_keystore.sh`](../scripts/generate_release_keystore.sh)
+**Stage 3 Block 3 新增**。交互式 keytool 封装，一次性生成 Release APK 签名
+keystore + 写 `buildozer.spec.local`。
+- **前置**：WSL Ubuntu 装了 OpenJDK 17（`keytool` 命令可用）。
+- **默认路径**：`<项目>/keys/reversiblemosaic.jks`（`.gitignore` 挡住 `keys/`
+  目录级）。别名 `reversiblemosaic`，RSA-2048，validity 10000 天。可用
+  `KEYSTORE_FILE=` / `KEYSTORE_DIR=` / `KEY_ALIAS=` 环境变量覆盖 —— 建议
+  长期存放用项目外位置（U 盘 / 密码管理器附件），因为项目目录可能被
+  云盘同步或压缩打包，gitignore 管不住这些。
+- **交互流程**：
+  1. 已有同路径 keystore 时提示确认覆盖（防误删导致老 APK 无法升级）。
+  2. 索取签名主体 DN 六个字段（CN 必填，OU/O/L/ST/C 可选）。
+  3. `keytool -genkeypair` 直接向用户索取 keystore + key 口令（**脚本不接触
+     口令内容**）。
+  4. `keytool -list -v` 验证生成成功。
+  5. 二次读入口令（写入 `buildozer.spec.local` 用；这次经过脚本变量传递，
+     但只落到 chmod 600 的本地文件，不打日志、不上网）。
+  6. 生成 `buildozer.spec.local`（`.gitignore` 已排除），包含
+     `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd` 四个 key。
+- **关��叮嘱**（脚本尾部打印）：备份 keystore 到离线安全位置；不要 git add
+  `buildozer.spec.local`；正式发布前完成身份切换五步（见
+  [`docs/release-notes.md`](release-notes.md) § 1）。
+- **改动指引**：
+  - 想换 keyalg / keysize：改脚本顶部的 `KEY_ALGORITHM` / `KEY_SIZE`（当前
+    RSA-2048 是 Android APK 签名标准）。
+  - 想让脚本 non-interactive（CI 用）：走环境变量 + `keytool -storepass ... -keypass ...`
+    路径 —— **禁止** 把口令写进任何入库文件；建议 CI 从 secrets manager 读。
 
 #### [`scripts/wsl_prefetch_p4a.sh`](../scripts/wsl_prefetch_p4a.sh)
 一次性预取 p4a 需要的全部 tarball（hostpython3, jpeg, libffi, libwebp,
@@ -1018,8 +1088,22 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
   rounds {2, 5, 15, 30}, R=max(8, min(W,H)//32)）。**附录 A：面向读者的算法讲解**
   （A.1–A.12，2026-07-30 追加）给出直觉版说明 + ASCII 公式 + 可逆性直觉证明，
   是"想读懂 V1 在做什么"的入口，不覆盖 §1–5 的严格规范。
-- [`docs/build-android.md`](build-android.md)：Android 构建说明（p4a
-  recipe、NDK 布局、镜像用法）。
+- [`docs/build-android.md`](build-android.md)：**Stage 3 Block 2 大改** ——
+  阶段 0 草案升级为**阶段 3 冻结基线**。工具链版本（OpenJDK 17 / NDK r25b /
+  target Python 3.14 / NumPy 2.3.0 / Pillow 11.3.0 / Cython 3.2.9）、Android
+  目标（API 34 / minapi 26 / arm64-v8a）、一次性准备、增量构建、Cython 交叉
+  编译时序、APK 版本后缀命名、签名策略、已知障碍与对策全部落地。所有工具链
+  升级必须同步这份文档。
+- [`docs/release-notes.md`](release-notes.md)：**Stage 3 Block 2 新增** ——
+  v0.1.0 MVP 内部签名 Release 发行说明。§1 版本身份与限制（applicationId
+  占位 + 内部自签 keystore + 正式发布五步走）；§2-4 功能/限制/已知问题；§5
+  版本历史（Stage 0-3 全流程 + APK SHA-256 表格占位，Block 3 填充）；§6
+  **第三方组件与许可清单**（APK 内 14 项 + PC dev + 构建工具）；§7-8 用户
+  教程要点/支持反馈。
+- [`docs/test-plan.md`](test-plan.md)：**Stage 3 Block 2 新增** —— 测试计划
+  与 AC 追踪。§1 环境快照 + 冻结阈值；§2 AC-001~017 + AC-PERF 逐条 status
+  标记；§3 覆盖率汇总（250 passed / 21 skipped）；§4 §12.3 单人偏差豁免记录；
+  §5 Block 3/4 收官时追加的真机数据槽位。
 - [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据；阶段 3 冻结
   时会把 1920×1080 真机耗时/内存写入。
 - [`docs/source-index.md`](source-index.md)：**本文件**。
