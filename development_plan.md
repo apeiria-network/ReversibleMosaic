@@ -546,18 +546,55 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
 1. **【联合】生成 keystore**：用户在 PowerShell 里跑
    `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/generate_release_keystore.sh`，
    交互式输入签名主体 DN + 口令；完成后备份 `<项目>/keys/reversiblemosaic.jks`
-   到离线位置。
+   到离线位置。✅ 已完成（2026-07-31，`CN=Apeiria-network, C=CN`）。
 2. **【联合】Release 构建**：keystore 就位后，用户跑
-   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release`，
+   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v18`，
    产出 signed Release APK。首次冷启动预计 25-30 分钟，增量 3-5 分钟。
+   ✅ v17 已完成（`bin/reversiblemosaic-0.1.0-arm64-v8a-release-v17.apk`，
+   SHA-256 `546dc561005b2a02745d6ec10bdfdcc4cd46a33cd4c26f435e208a49919b0394`；
+   v18 之后由重写后的脚本自动加版本后缀 + apksigner 封装）。
 3. **【联合】签名 fingerprint 验证**：`keytool -printcert -jarfile <apk>`，
    记录 SHA-256 到 `docs/release-notes.md` § 5 表格。
+   ✅ 已完成（证书 SHA-256 `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7`）。
 4. **【联合】APK 装机 + AC-PERF 基准**：真机装 signed Release APK，
    进阶段 0 自检 → "Stage 3 AC-PERF 基准"按钮跑一次，`adb pull` 取
    `stage3_bench.json` 回主机，附到 `docs/probe-report.md`。
+   ⏳ **v17 debug 已采集**（详见下文子节）；signed Release APK 复采待 F3~F6 开闸后进行。
 5. **【联合】飞行模式 + 深浅色 + 大字体 walk-through**：真机开飞行模式跑完
    选图 → 打码 → 保存 → 恢复；再切系统深/浅色 + 大字体 各走一遍；截图或
-   录屏反馈异常。
+   录屏反馈异常。**暂停中（用户 C2 门槛）**，待 stage3-block3-problems.md
+   B1/C1/C3/D3/D1/E2 全部收口后再开。
+
+##### v17 debug 真机测试完成情况（2026-07-31，小米 K80 Pro）
+
+- **验收设备**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)
+- **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v17.apk`（debug 签名；
+  APK 已丢失，SHA-256 未记录 —— 详见 [stage3-block3-problems.md § D1](stage3-block3-problems.md)）
+- **测试口径**：1920×1080 RGB 现算图 × `{2, 5, 15, 30}` × 5 次 encrypt-only；
+  Cython nogil 后端（`registry V1 backend = cython`）
+- **AC-PERF 判定**：
+
+  | rounds | median | P95 | peak_rss | 目标 | verdict |
+  |---:|---:|---:|---:|---:|:---|
+  |  2 | 0.103 s | 0.105 s | 269.3 MiB |  6 s | ✅ PASS (~58×) |
+  |  5 | 0.256 s | 0.256 s | 269.6 MiB |  9 s | ✅ PASS (~35×) |
+  | 15 | 0.767 s | 0.767 s | 270.0 MiB | 27 s | ✅ PASS (~35×) |
+  | 30 | 1.533 s | 1.536 s | 270.5 MiB | 52 s | ✅ PASS (~34×) |
+
+  总扫描 12.9 s；每档 ≥ 34× 余量通过 §10.2 目标。30 轮实测 1.533 s 与 v7
+  阶段外推 "~1.53 s" 几乎完全吻合（详见
+  [`docs/probe-report.md`](docs/probe-report.md) § 阶段 3 v17 debug 真机基准）。
+- **数据来源**：真机 App 私有目录 `stage0_perf.json`（v17 APK 打包早于
+  `self_test.py` 的 `stage3_bench.json` 重命名，v18+ 会自动用新文件名）。
+  JSON 原文用户丢失，数据以 App 内自检屏截图为准。
+- **同步更新文档**：
+  - [docs/probe-report.md](docs/probe-report.md) 追加"阶段 3 v17 debug 真机基准"章节；
+    原 v7 章节头部加历史标注（老口径 `{1,5,10,20}` 仅作参考）。
+  - [docs/test-plan.md](docs/test-plan.md) AC-PERF 条目：老口径 v7 数据替换为
+    v17 新口径 + PASS 判定；性能验收设备 = K80 Pro 记入 § 1 环境快照。
+- **未决事项**：
+  - v17 debug APK SHA-256 未记录（APK 丢失，用户明规不追补）
+  - signed Release APK 的 AC-PERF 复采待 C2 门槛开闸后进行（预计与 debug 差异 5-15%）
 
 Block 3 收官条件：signed Release APK v17 SHA-256 记录 + AC-PERF 真机中位数
 达标 + 飞行模式主链路通过。

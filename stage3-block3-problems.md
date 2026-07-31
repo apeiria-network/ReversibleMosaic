@@ -98,6 +98,12 @@
   3. **验证 buildozer 能否在 WSL workspace 里没有 spec.local 的情况下读到 D 盘的 spec.local**：这可能是个问题 —— buildozer 从 `~/src/ReversibleMosaic/` 运行，spec.local 的合并机制可能强制要求同目录。如果不行，需要考虑 symlink 或者让 buildozer 显式指向 D 盘 spec.local。**不确定 buildozer 是否支持 spec.local 跨目录读取，需要下一个会话验证**。
   4. **对 D 盘的 spec.local 做 Windows ACL 加固**（可选，用户没明规但符合 B1 精神）：`icacls D:\...\buildozer.spec.local /inheritance:r /grant:r "%USERNAME%":R`，只允许当前用户读。**如果动这个先问用户**。
   5. **写完改动后要跑一次 pytest + ruff + mypy** 确保零回归。
+- **本会话执行状态（2026-07-31，Step 1 + Step 2）**：**已完成**。
+  - `scripts/wsl_build_android.sh` rsync exclude 列表已加 `--exclude "buildozer.spec.local"`（第 123 行，与 `--exclude "keys/"` 并列）。
+  - 用户已回执执行 `rm -f /home/hydrogen/src/ReversibleMosaic/buildozer.spec.local`，确认 WSL 侧无残留（`ls -la` 报 no such file）。
+  - **不再依赖 buildozer 跨目录读 spec.local**：Q1 决策 C 走脚本内 apksigner 封装，buildozer 端预期产出 unsigned APK，签名凭据由脚本从 `/mnt/d/.../buildozer.spec.local` 只读现拉现用。因此第 3 步"跨目录读取"担忧不成立，跳过。
+  - 第 4 步 Windows ACL 加固**未执行**（用户没明规，符合"先问"原则；如需加固可后续单独提）。
+  - pytest 250 passed / 21 skipped、ruff 9 baseline、mypy 23 baseline —— 零回归。
 
 #### B2. Keystore 备份细节
 
@@ -141,6 +147,11 @@
   2. **不要**尝试改主 `buildozer.spec` 加 signing key（违反 B1）。
   3. **不要**尝试环境变量注入方案（方案 B 被 Q1 排除）。
   4. **实际操作**：跟 C3 合并 —— 在 `wsl_build_android.sh` 的 release 分支里封装 apksigner 全流程（详见 C3 章节）。修好后 `docs/build-android.md` § 5.2 明确写"buildozer 出 unsigned APK 是**预期行为**，签名由脚本内的 apksigner 步骤完成"，避免下一个 AI 又走 C1 错路。
+- **本会话执行状态（2026-07-31，Step 2 + Step 3）**：**已完成**（合并进 C3 一次修改）。
+  - `scripts/wsl_build_android.sh` release 分支已封装 apksigner sign / verify 全流程（脚本行 171~266）：从 `/mnt/d/.../buildozer.spec.local` 只读读取 4 项签名凭据，`--ks-pass stdin --key-pass stdin` heredoc 传入，签完立即 `unset` + `trap` 兜底。
+  - `docs/build-android.md` § 5.2 已明确记录"buildozer 预期产出 `*-release-unsigned.apk`（Q1 决策 C 的期望行为，不是 bug）"—— 避免下一个 AI 又走 C1 错路。
+  - 未改主 `buildozer.spec` 加 signing key、未走环境变量注入方案。
+  - pytest / ruff / mypy 零回归。
 
 #### C2. apksigner 手签的 APK 未实测装机
 
@@ -211,6 +222,24 @@
      - 更新 `docs/source-index.md` 里 `wsl_build_android.sh` 条目
      - 更新 `docs/build-android.md` § 3.2 「增量构建」的命令示例
      - 跑 pytest + ruff + mypy 验证零回归
+- **本会话执行状态（2026-07-31，Step 2 + Step 3 + Step 4）**：**已完成**（C1 + C3 + D3 一次改）。
+  - `scripts/wsl_build_android.sh` 重写为 `<mode> <version>` 双参强制形式：
+    - 参数校验：`mode ∈ {debug, release}` + `version` 匹配 `^v[0-9]+$`，缺参 / 格式不对 → exit 2。
+    - 目标文件已存在检查（WSL bin + D 盘 bin 任一位置） → exit 4，拒覆盖。
+    - Release 分支前置检查 D 盘 spec.local 存在 → 缺则 exit 3。
+    - Debug 分支：buildozer → mv 到目标名 → cp -a 到 D 盘 → sha256sum。
+    - Release 分支：buildozer 出 unsigned → 从 D 盘 spec.local grep 出 4 项凭据（`${line#*=}` 只按首个 `=` 切，支持含 `=` 的口令）→ apksigner sign heredoc stdin → apksigner verify → 立即 unset 口令（+ trap 兜底）→ 删 unsigned 中间产物 → cp -a 到 D 盘 → sha256sum + keytool -printcert -jarfile。
+  - 不显式做 zipalign（Q7 决策已在脚本注释中记录）。
+  - 口令处理严格遵守：不 `set -x`、不 tee 到 `$LOG`、不通过命令行参数传入。
+  - 文档同步四处：
+    - `scripts/wsl_build_android.sh` 头部注释（新命令签名 + Q1 决策 C 说明）
+    - `buildozer.spec` 顶部注释（提到脚本新签名 + apksigner 封装）
+    - `docs/build-android.md` § 3.2 增量构建示例 + § 3.4 版本后缀节 + § 5.2 完整 apksigner 流程说明
+    - `docs/source-index.md` 主构建段落调用姿势 + `wsl_build_android.sh` 条目全量重写
+    - `scripts/generate_release_keystore.sh` 尾部提示行（新命令示例）
+  - 静态验证：`bash -n` 语法 OK；参数校验分支（缺 mode / 缺 version / 版本格式错）exit 2 触发。
+  - Release 端到端验证需真机构建，等 Step 5 F3~F6 开闸后再做。
+  - pytest 250 passed / 21 skipped、ruff 9 baseline、mypy 23 baseline —— 零回归。
 
 #### C1 决策已明确 —— 见 C3 章节
 
@@ -245,6 +274,16 @@ C1 与 C3 合并为一次修改。**下一个会话不要单独处理 C1**（已
      - [development_plan.md](development_plan.md)：阶段 3 Block 3 段落补一小节"v17 debug 真机测试完成情况"
      - [docs/test-plan.md](docs/test-plan.md) AC-PERF 条目：把"沿用 v7 debug 参考数据"改成"基于 v17 debug 真机基准"（配合 E2 一起做）
   3. **注意**：v17 debug 数据是 debug 签名的 APK，不是 signed Release APK。AC-PERF 目标要求的是"签名 Release APK 的数据"（§10.2）。debug vs release 性能差异一般 5-15%（Cython nogil 段的差异微乎其微），可以在文档里注明"debug 数据作为 signed Release 前的参考基准；signed Release APK 复采需真机测试通过后进行"（这跟 C2 挂钩）。
+- **本会话执行状态（2026-07-31，Step 5）**：**已完成**（跟 E2 合并做）。
+  - 用户提供数据：小米 K80 Pro / Android 16 / RAM 16+6 GB / 2026-07-31 采集。
+  - v17 debug APK SHA-256：**未记录**（用户明规"拿不到"，APK 已丢失；文档中直接标注"未记录"，不追补）。
+  - AC-PERF `{2,5,15,30}` × 5 次中位数 + P95 + peak_rss 全部 PASS（余量 ≥ 34×），30 轮实测 1.533 s 与 v7 阶段外推 "~1.53 s" 几乎完全吻合，Cython 路径稳定。
+  - 数据来源附注：v17 APK 打包早于 `self_test.py` 的 `stage0_perf.json → stage3_bench.json` 重命名，v17 装机跑出的 JSON 仍是老文件名；JSON 原文用户丢失，数据以 App 内自检屏截图为准（用户 IDE 截图证据）。
+  - 三份文档同步：
+    - [docs/probe-report.md](docs/probe-report.md) 追加"阶段 3 v17 debug 真机基准（2026-07-31）"章节，包含设备信息 + AC-PERF 表 + v7 对比 + 待补齐清单；同时给 v7 章节头部加历史标注。
+    - [development_plan.md](development_plan.md) Block 3 段：`Block 3 尚待用户参与` 5 项标注完成度（keystore/Release/fingerprint 已完成，AC-PERF 部分完成，walk-through 暂停），新增子小节"v17 debug 真机测试完成情况"。
+    - [docs/test-plan.md](docs/test-plan.md)：§ 1 目标验收设备改为 K80 Pro，冻结阈值补 2 轮 ≤ 6 s + 5 轮 ≤ 9 s 两档，AC-PERF 条目老口径 v7 数据整段替换为 v17 新口径 + PASS 判定 + 状态标记。
+  - **未跑 pytest**（纯文档改动）。
 
 #### D2. `docs/release-notes.md` 表格里的 v15 debug SHA-256 占位
 
@@ -267,6 +306,7 @@ C1 与 C3 合并为一次修改。**下一个会话不要单独处理 C1**（已
   - 参数强制（不是 `bin/` 扫描 +1）
   - `debug v17` 与 `release v17` 是同一份代码不同签名（Q6 明规）
   - 目标文件已存在则 exit 报错，防止误覆盖
+- **本会话执行状态（2026-07-31）**：**已完成**（并入 C3 一次修改，见上方 C3 收口）。同版本号 debug + release 因文件名含 `-<mode>-` 段不会冲突（例 `v18 debug` 与 `v18 release` 可同时存在于 `bin/` 下）。
 
 ---
 
@@ -297,6 +337,7 @@ C1 与 C3 合并为一次修改。**下一个会话不要单独处理 C1**（已
      - 状态标记从 "⏳ Stage 3 Block 3 出 signed Release APK 后复采一次即可签署" 改成 "✅ v17 debug 已在 1920×1080 × {2,5,15,30} × 5 次采集通过；signed Release APK 复采待真机装机（C2 门槛后）"。
   2. `docs/probe-report.md` 里 v7 章节保留（历史记录），追加"注意：v7 数据是老轮次集 {1,5,10,20}，仅作历史参考；当前口径见阶段 3 v17 debug 章节"。
   3. 不需要跑 pytest（纯文档）。
+- **本会话执行状态（2026-07-31，Step 5）**：**已完成**（并入 D1 一次修改，见上方 D1 收口）。核心动作：`docs/test-plan.md` AC-PERF 条目老口径整段替换为新口径 v17 数据 + PASS 判定；`docs/probe-report.md` v7 章节头部加历史标注（老轮次集 `{1,5,10,20}` 仅作参考，当前口径见 v17 debug 章节）。
 
 ---
 

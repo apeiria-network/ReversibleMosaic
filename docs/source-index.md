@@ -857,38 +857,66 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 >    Cython 内循环交叉编译成 arm64 `.so` 塞回源码树。
 > 5. `tee` 日志到 `/home/hydrogen/src/reversible-mosaic-build.log`（不用 `| tail -20` 吞掉过程）。
 >
-> **正确调用**（PowerShell / Windows shell 里）：
+> **正确调用**（PowerShell / Windows shell 里，Stage 3 Block 3 起两参数都强制）：
 >
->     wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh
+>     wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh debug v18
 >
-> 产物在 **`~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk`**（WSL 原生盘），
-> 手工 `cp ~/src/ReversibleMosaic/bin/*.apk /mnt/d/python/python_projects/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-vNN.apk` 拷回 Windows 侧并附上版本号后缀，最后 `sha256sum` 记录哈希。
+> 产物由脚本自动加版本后缀并回拷 D 盘：
+> **WSL** `~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v18.apk` +
+> **D 盘** `bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v18.apk`，
+> 脚本会自动 `sha256sum` 打印两处哈希。目标文件已存在则 exit 4 拒覆盖。
 
 #### [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
 Buildozer 打包主入口，**只在 WSL Ubuntu 里跑**（`wsl -d Ubuntu -- bash
-scripts/wsl_build_android.sh [debug|release]`）。做的事：
-1. 杀掉遗留的 `buildozer` / `python-for-android` 进程（不含自身 PID）。
-2. **增量** `rsync -a --delete --exclude ".buildozer/"` 从 Windows 侧
-   同步源码到 `/home/hydrogen/src/ReversibleMosaic/`。**关键**：保留
-   `.buildozer/build/` 目录（CPython/SDL2/kivy 的编译产物），下次改 py
-   只花 3–5 min，而不是 25–30 min 全量重编。
-3. 从 `~/.p4a-source-cache/` hard-link tarball 到 workspace 里
-   `packages/`，让 p4a 全程跳过网络。
-4. 通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 把 recipe 里
-   `https://github.com/*` clone 重定向到 `https://ghfast.top/https://github.com/*`
-   镜像 —— **每次调用生效，不改用户 `~/.gitconfig`**。
-5. **Stage 3 Block 3 新增 release 分支**：位置参数默认 `debug`；`release`
-   时前置检查 `buildozer.spec.local` 存在（不存在 exit 3 引导用户先跑
-   `generate_release_keystore.sh`），最终 `exec buildozer android <mode>`。
-6. `cd $WORKSPACE && exec buildozer android <mode>`，同步写日志到
-   `/home/hydrogen/src/reversible-mosaic-build.log`。
+scripts/wsl_build_android.sh <debug|release> <version>`）。Stage 3 Block 3 起
+两个位置参数**都强制**，缺参 / 格式不对 / 目标文件已存在都会立即 exit 报错。
+做的事：
+1. 参数校验：`mode ∈ {debug, release}`；`version` 匹配 `^v[0-9]+$`（如 `v18`）。
+2. 目标 APK 命名 `reversiblemosaic-0.1.0-arm64-v8a-<mode>-<version>.apk`；
+   WSL 侧 (`~/src/ReversibleMosaic/bin/`) 与 D 盘 (`/mnt/d/.../bin/`) 任一位置
+   已存在 → exit 4（拒覆盖，防止误替换已发出的 APK）。
+3. Release 分支前置检查 D 盘 `buildozer.spec.local` 存在（不存在 exit 3
+   引导用户先跑 `generate_release_keystore.sh`）。
+4. 杀掉遗留的 `buildozer` / `python-for-android` 进程（不含自身 PID）。
+5. **增量** `rsync -a --delete` 从 Windows 侧同步源码到
+   `/home/hydrogen/src/ReversibleMosaic/`。**关键 exclude**：
+   - `.buildozer/`（保留编译产物，下次改 py 只 3–5 min 而非 25–30 min）
+   - `keys/`（keystore 只留 D 盘，Stage 3 Block 3 B1 隔离要求）
+   - `buildozer.spec.local`（明文口令只留 D 盘，同 B1）
+6. 从 `~/.p4a-source-cache/` hard-link tarball 到 workspace 里 `packages/`，
+   让 p4a 全程跳过网络。
+7. 通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 把 recipe 里 `https://github.com/*` clone
+   重定向到 `https://ghfast.top/https://github.com/*` 镜像 —— **每次调用生效，
+   不改用户 `~/.gitconfig`**。
+8. 调 `bash wsl_build_v1_cython.sh` 交叉编译 V1 Cython 内层。
+9. `buildozer android <mode>` 跑主构建（tee 到 `/home/hydrogen/src/reversible-mosaic-build.log`）。
+10. **Debug 分支**：`mv` 到目标名 → `cp -a` 到 D 盘 → `sha256sum` 打印。
+11. **Release 分支（Stage 3 Block 3 Q1 决策 C：apksigner 封装）**：
+    - buildozer 因 WSL 侧无 spec.local 产出 `*-release-unsigned.apk`（预期行为）
+    - 用 `grep -m1 + ${line#*=}` 从 `/mnt/d/.../buildozer.spec.local` 只按首个 `=`
+      切出 `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd`
+      四个值（支持含 `=` 的口令；不 `set -x`、不 tee 日志）
+    - keystore 路径若为 Windows 风格 `D:\...` 自动转 `/mnt/d/...`
+    - 找 `~/.buildozer/android/platform/android-sdk/build-tools/*/apksigner`
+      （取 `sort -V` 最新版本）
+    - `apksigner sign --ks-pass stdin --key-pass stdin` **只走 stdin heredoc**
+      喂口令，`ps -ef` 与 `ps auxf` 看不到
+    - 签完立即 `unset KS_PW KEY_PW`；`trap 'unset ...' EXIT` 兜底任何路径退出都清空
+    - `apksigner verify --verbose --print-certs`（输出只含公开证书信息，允许 tee）
+    - 删中间 `-release-unsigned.apk`；`cp -a` 到 D 盘；`sha256sum` + `keytool -printcert -jarfile`
+    - **不做 zipalign**（Q7 决策：buildozer 输出已 aligned；apksigner 会主动检测对齐失败）
 
 **改动指引**：
 - **绝对不要**恢复 `rm -rf $WORKSPACE` —— 每轮都会从零重编 CPython。
+- **绝对不要**从 rsync exclude 列表移除 `keys/` 或 `buildozer.spec.local`
+  （Stage 3 Block 3 用户明规 B1 隔离，签名素材禁止离开 D 盘）。
+- **绝对不要**把口令通过命令行参数传给 apksigner / keytool（`ps -ef` 会看到）；
+  只能走 stdin。
+- **绝对不要**在处理口令的段落启用 `set -x` 或把口令 tee 到 `$LOG`。
 - 不要动用户全局 git config；用现有的 `GIT_CONFIG_*` 环境变量方式。
 - 加新的镜像可以直接改脚本里 `GIT_CONFIG_VALUE_0`。
-- 加新的 build mode（如 `test` / `aab`）：在顶部 `case` 里追加，后面 buildozer
-  命令原样透传。
+- 加新的 build mode（如 `test`）：在顶部参数解析 `case` 里追加，release 分支
+  的 apksigner 步骤保持独立。
 
 #### [`scripts/generate_release_keystore.sh`](../scripts/generate_release_keystore.sh)
 **Stage 3 Block 3 新增**。交互式 keytool 封装，一次性生成 Release APK 签名
@@ -909,7 +937,7 @@ keystore + 写 `buildozer.spec.local`。
      但只落到 chmod 600 的本地文件，不打日志、不上网）。
   6. 生成 `buildozer.spec.local`（`.gitignore` 已排除），包含
      `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd` 四个 key。
-- **关��叮嘱**（脚本尾部打印）：备份 keystore 到离线安全位置；不要 git add
+- **关键叮嘱**（脚本尾部打印）：备份 keystore 到离线安全位置；不要 git add
   `buildozer.spec.local`；正式发布前完成身份切换五步（见
   [`docs/release-notes.md`](release-notes.md) § 1）。
 - **改动指引**：

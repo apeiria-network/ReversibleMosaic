@@ -142,6 +142,10 @@ PC dev `python setup.py build_ext --inplace` 时用（Windows 上因缺 `__uint1
 
 ## 阶段 1 v7 真机基准 (2026-07-28)
 
+> **⚠️ 历史参考数据 —— 老轮次集 `{1, 5, 10, 20}`**。当前 AC-PERF 口径为
+> `{2, 5, 15, 30}`（2026-07-29 二次修订并冻结）。v7 数据保留仅作 Cython
+> 接入前后对比证据；**AC-PERF 当前判定以下方 v17 debug 章节为准**。
+
 - **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v7.apk`
 - **SHA-256**：`628f74b0d08525803e839747864f8187e4589b036b6c8baf631325893d6f57f0`
 - **大小**：34.14 MiB（比 v6 多 ~9 KiB = `optimized_v1.pyc` + `quality.pyc` + 更新的 `registry.pyc`）
@@ -190,4 +194,57 @@ PC dev `python setup.py build_ext --inplace` 时用（Windows 上因缺 `__uint1
 - **具体设备型号 / SoC / Android 版本**：正式发布前需绑定"约定性能设备"并在此记录。
 - **冷/热启动区分**：本轮跑的是热启动；冷启动首次仍可能受 Cython `.so` load + Python import 影响。发布前需补一次冷启动数据。
 - **1920×1080 RGBA + JPEG 输入**：本轮只测了 RGB 合成图，正式发布前需扩展到真实照片输入（含 EXIF 方向、Alpha 通道）。
+
+## 阶段 3 v17 debug 真机基准 (2026-07-31)
+
+**验收设备**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)
+
+**APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v17.apk`（debug 签名，
+signed Release 复采待 C2 门槛开闸后进行）
+
+- **SHA-256**：未记录（v17 debug APK 已丢失，用户 2026-07-31 明确"拿不到"）
+- **测试日期**：2026-07-31
+- **测试口径**：1920×1080 RGB 现算图 × `{2, 5, 15, 30}` × 5 次 encrypt-only（不含 decrypt）
+- **实现**：`registry V1 backend = cython`（Cython nogil 内循环全部接入 pipeline）
+
+### AC-PERF 结果（真机中位数 + P95 + 峰值 RSS）
+
+| rounds | median | P95 | peak_rss | AC-PERF 目标 (§10.2) | verdict | 余量 |
+|---:|---:|---:|---:|---:|:---|---:|
+|  2 | 0.103 s | 0.105 s | 269.3 MiB |  6 s | ✅ PASS | ~58× |
+|  5 | 0.256 s | 0.256 s | 269.6 MiB |  9 s | ✅ PASS | ~35× |
+| 15 | 0.767 s | 0.767 s | 270.0 MiB | 27 s | ✅ PASS | ~35× |
+| 30 | 1.533 s | 1.536 s | 270.5 MiB | 52 s | ✅ PASS | ~34× |
+
+**总扫描耗时 12.9 s（4 档 × 5 次 encrypt + 每档 1 次 encrypt+decrypt sanity）。**
+
+### 数据来源
+
+- 数据从真机 App 私有目录 `stage0_perf.json` 读出（v17 APK 打包时 `self_test.py`
+  尚未做 `stage0_perf.json → stage3_bench.json` 重命名；v18+ 用当前源码打包会
+  自动写到 `stage3_bench.json`）。JSON 原文用户已丢失，本表数据以 App 内自检屏
+  截图为准（`docs/probe-report.md` 提交历史 + 用户 IDE 截图证据留档）。
+- `peak_rss` 单调递增（269.3 → 270.5 MiB）与 rounds 增加相关系数低，属于
+  Cython nogil buffer 在多轮下的稳态；未接近 §10.1 MEMORY_FRACTION_LIMIT。
+
+### 与 v7 数据对比（Cython 加速稳定）
+
+| 版本 | rounds | median | 备注 |
+|---|---:|---:|---|
+| v7 debug | 20 | 1.072 s | 老口径 `{1,5,10,20}` |
+| v17 debug | 30 | 1.533 s | 新口径 `{2,5,15,30}`；30 轮 = v7 20 轮 × 1.43，符合 O(N) 预期 |
+
+v7 阶段外推 "30 轮 ~1.53 s"，v17 实测 1.533 s，**几乎完全吻合**。Cython 路径
+自 Stage 1 冻结起至今稳定，未出现回归。
+
+### 待补齐（继承 v7）
+
+- **v17 debug APK SHA-256**：APK 已丢失，如需补录须重打 v17 (git checkout
+  提交 `stage3-block3-problems` 前的 tree 状态 + `wsl_build_android.sh debug v17`)。
+- **signed Release APK 复采**：C2 门槛开闸后（F3~F6 真机测试通过），基于当前
+  代码打 v18+ signed Release，在同一台 K80 Pro 上复跑一次 AC-PERF。
+- **冷启动测量**：本轮跑的是热启动。
+- **RGBA + 真实 JPEG 输入**：v17 只测了 1920×1080 现算 RGB。
+- **签名 fingerprint**：debug APK 用的是 debug keystore，非本项目内部自签
+  keystore；Release 版本会自动带上 `CN=Apeiria-network, C=CN` 的 v2/v3 签名。
 

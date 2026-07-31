@@ -101,12 +101,16 @@
 
 ```powershell
 # PowerShell / Windows shell
-wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh
+wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh debug v18
 ```
 
+- **两个参数都强制**：`<debug|release>` + `<version>`（形如 `v18`，脚本用 `^v[0-9]+$` regex 校验，缺参 exit 2、格式不对 exit 2）。
 - 首次冷启动：25–30 分钟（编译 CPython 3.14 + SDL2 + libtvg + libwebp + kivy）
 - 增量构建：3–5 分钟（改 py/spec 后）
-- 产物：`~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk`
+- 产物（脚本自动加版本后缀并回拷 D 盘）：
+  - WSL 侧：`~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v18.apk`
+  - D 盘：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v18.apk`
+- 目标文件若已存在，脚本报错 exit 4（不覆盖，防止误替换已发出的 APK）。
 
 ### 3.3 Cython 交叉编译
 
@@ -115,18 +119,22 @@ wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl
 `reversible_mosaic/core/algorithm/v1.pyx` 交叉编译成
 `v1.cpython-314-aarch64-linux-android.so`（cython 3.2.9 + NDK r25b clang-14 +
 target Python 3.14 头）。buildozer 通过 `source.include_exts = ...,so,...`
-把 loose `.so` 打进 APK。**首次冷启动时目标 Python 3.14 头文件还未生成，
+把 loose `.so` 打进 APK。**首次冷启动时目标 Python 3.14 头文件还未生成,
 第一次调用 Cython 脚本只做 `.pyx → .c` 一步返回 0；buildozer 建好 dist 后
 需要再次运行 Cython 脚本得到 `.so`**。目前 `wsl_build_android.sh` 已
 串联好两个阶段。
 
-### 3.4 手工拷贝 APK 回 Windows 并打版本后缀
+### 3.4 版本后缀与产物回拷（脚本自动完成）
 
-```bash
-sha256sum ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk
-cp ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk \
-   /mnt/d/python/python_projects/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v17.apk
-```
+Stage 3 Block 3 起，产物版本后缀 + D 盘回拷 + `sha256sum` 打印**由脚本内置完成**，
+不再手工 `cp`。命令 `wsl_build_android.sh debug v18` 会自动：
+
+1. buildozer 出 `bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk`
+2. `mv` 到 `bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v18.apk`
+3. `cp -a` 到 D 盘 `bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v18.apk`
+4. `sha256sum` 两处产物
+
+Release 分支同样自动完成上述四步，另外多一步 apksigner 签名与 `keytool -printcert -jarfile` 摘要（见 § 5.2）。
 
 SHA-256 记录到 [`docs/release-notes.md`](release-notes.md) 的对应版本条目。
 
@@ -144,12 +152,14 @@ Stage 3 采用**内部自签 Release**（应用户决定，2026-07-30）：
   `KEYSTORE_FILE=` 环境变量覆盖到项目外的位置。密钥文件与口令**不进入源码
   仓库、不发送给 AI**；用户需自行拷一份到项目外的离线安全位置作为备份
   （项目目录可能被 OneDrive/iCloud/云盘同步 —— gitignore 管不住这些）。
-- **keystore 口令持久化**：写到 `buildozer.spec.local`（`.gitignore` 排除），
-  buildozer 通过 `p4a.release_artifact` / signing config 读入。
+- **keystore 口令持久化**：写到 `buildozer.spec.local`（`.gitignore` 排除，
+  `wsl_build_android.sh` 的 rsync 也 `--exclude "buildozer.spec.local"`，
+  WSL 侧永远没有副本；签名时 `apksigner` 从 D 盘 `/mnt/d/.../buildozer.spec.local`
+  只读读取，签完立即 `unset` 口令变量）。
 - **发行说明必须写清**：Release APK 用的是内部自签 keystore，不能作为正式渠道
   发布身份使用，商用发布前需切换。
 
-签名的具体 keytool / buildozer signing 步骤见下 § 5"Release 签名执行"。
+签名的具体 keytool / apksigner 步骤见下 § 5"Release 签名执行"。
 
 ---
 
@@ -184,16 +194,29 @@ wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/gen
 一次性 keystore 就位后，每次改代码打 Release APK：
 
 ```powershell
-wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release
+wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v18
 ```
 
+**参数强制**：`<release>` + `<version>`（`^v[0-9]+$`），缺参 exit 2。同一份代码状态下的
+debug 与 release **共享同一版本号**（例如 `debug v18` 与 `release v18` 是同一次代码的两个签名产物）。
+
 `wsl_build_android.sh` 的 `release` 分支会：
-1. 检查 `buildozer.spec.local` 存在（不存在则 exit 3，提示先跑生成脚本）。
-2. rsync + p4a 缓存 hard-link + github.com 镜像 + Cython 交叉编译，与 debug
-   路径一致。
-3. `buildozer android release` 触发签名步骤，读取 `buildozer.spec.local` 里的
-   四个 `android.release_*` key。
-4. 产物：`~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk`。
+
+1. 检查 D 盘 `buildozer.spec.local` 存在（不存在则 exit 3，提示先跑 `generate_release_keystore.sh`）。
+2. rsync + p4a 缓存 hard-link + github.com 镜像 + Cython 交叉编译，与 debug 路径一致。
+   rsync 已 `--exclude "buildozer.spec.local"` + `--exclude "keys/"`，签名素材从不进 WSL。
+3. `buildozer android release` **预期产出 `*-release-unsigned.apk`**（因 WSL 侧无 spec.local，
+   buildozer 不做自动签名 —— 这是 Stage 3 Block 3 Q1 决策 C 的期望行为，不是 bug）。
+4. 脚本从 D 盘 `/mnt/d/.../buildozer.spec.local` grep 出四个 `android.release_*` 值，
+   口令通过 heredoc **只走 stdin**（`--ks-pass stdin --key-pass stdin`），不落 `ps -ef`，不进 tee 日志。
+5. 调 `apksigner sign` 输出 `bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk`，
+   立即 `unset` 口令变量（另有 `trap` 兜底）。
+6. `apksigner verify --verbose --print-certs` 校验 v2/v3 签名。
+7. 删除中间 `-release-unsigned.apk`；`cp -a` 到 D 盘同名位置。
+8. `sha256sum` + `keytool -printcert -jarfile` 打印证书摘要。
+
+不显式做 zipalign（Stage 3 Block 3 Q7 决策：buildozer 输出已经 aligned；如果对齐失败，
+`apksigner` 会主动报错而不是 warning，问题会明显暴露）。
 
 **注意：`android.release_artifact = apk`** —— buildozer 在 `release` 模式下
 **默认输出 AAB**（Google Play 应用包）。AAB 不能 `adb install`、不能直接分发，
@@ -205,8 +228,11 @@ release.aab available in the bin directory"（buildozer 自身的 typo，说 APK
 
 ### 5.3 验证签名 fingerprint
 
+签名验证 + 证书摘要打印**已由 `wsl_build_android.sh` release 分支内置**（见 § 5.2 步骤 6/8），
+无需再手工执行。历史上手工的等价命令：
+
 ```bash
-keytool -printcert -jarfile ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release.apk
+keytool -printcert -jarfile ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk
 ```
 
 记录 SHA-256 fingerprint 到 [`docs/release-notes.md`](release-notes.md) § 5 表格
