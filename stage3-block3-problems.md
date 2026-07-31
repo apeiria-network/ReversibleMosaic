@@ -507,6 +507,74 @@ C1 与 C3 合并为一次修改。**下一个会话不要单独处理 C1**（已
 
 ---
 
+## 4.7 v18 打包端到端验证 + CRLF 事故复盘（2026-07-31 补录）
+
+在本会话 §1 B1/C1/C3/D3 修完并 commit 后，用户请求测试 v18 debug + release
+完整打包流程作为脚本修改的端到端验证。过程中撞到一个之前不知道的坑，一并记录。
+
+### 4.7.1 v18 打包产物
+
+| 版本 | SHA-256 | 大小 | 签名主体 | 备注 |
+|---|---|---:|---|---|
+| v18 debug | `afe99948f82017608862cf6c74c6c92f5d88e098120a339c9b703e40b8d20059` | 33,135,600 B | Android debug | `wsl_build_android.sh debug v18` 一次通过 |
+| v18 signed Release | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | 33,135,600 B | `CN=Apeiria-network, C=CN` | 同 v17 keystore；apksigner v2+v3 verify 通过；证书 SHA-256 = `54c1bbbf...` 与 v17 逐位一致 |
+
+WSL 侧 + D 盘两处 SHA 各自一致（`cp -a` 保真通过）。**v18 打包脚本端到端验证通过**：
+双参强制、版本后缀命名、目标文件已存在 exit 4 拒覆盖（release v18 时曾触发过一次，防误覆盖工作正常）、apksigner heredoc stdin 传口令、verify + keytool -printcert 摘要、
+D 盘回拷 + sha256sum —— 每条支路都跑过至少一次。
+
+### 4.7.2 CRLF 事故根因（**下一个会话必须知晓**）
+
+**症状**：debug v18 第一次 build 挂在 rsync 之前，报错：
+```
+: invalid option nameprojects/ReversibleMosaic/scripts/wsl_build_android.sh: line 25: set: pipefail
+```
+乱码是因为 `\r` 让终端回到行首覆盖显示。真实错误是 `set -euo pipefail\r` 里的 `\r`
+让 bash 把 `pipefail\r` 当成非法选项名。
+
+**根因**：Windows 侧 git 的 `core.autocrlf=true` 会在 checkout 时把 LF 文件转成
+CRLF。本会话通过 Claude Code 的 Edit/Write 工具重写 `.sh` 文件时以 LF 写入，
+但用户随后 `git checkout` 到新分支（`stage3-real-test`）触发 git 的行尾归一化，
+`.sh` 被转 CRLF 落盘。WSL 侧 bash 读到 CRLF 就炸。
+
+**修复（已应用）**：
+1. **一次性 `sed -i 's/\r$//' scripts/*.sh`** 剥掉所有 shell 脚本的 CR。
+   共 6 个脚本被修：`wsl_build_android.sh` -281B、`generate_release_keystore.sh` -187B、
+   `wsl_build_v1_cython.sh` -78B、`wsl_prefetch_p4a.sh` -75B、`wsl_generate_visual_review.sh` -56B、
+   `wsl_patch_numpy_include.sh` -22B。
+2. **新增根级 `.gitattributes`** 永久锁定 `.sh` / `.py` / `.pyx` / `.pxd` / `buildozer.spec` /
+   `*.toml` / `requirements*.lock/.txt` 用 LF；`.png` / `.jpg` / `.jks` / `.apk` / `.so` 标 binary。
+   之后任何分支切换/checkout 都不会再触发 CRLF 归一化。
+
+**下一个会话不能做的事**：
+- **不要**用 `git config core.autocrlf false` 全局修 —— 会影响用户其他项目。
+  `.gitattributes` 是项目级方案，`core.autocrlf` 应保持用户偏好不动。
+- **不要**在 shell 脚本头部加"防御性" `sed 's/\r$//'` —— 是 hack，`.gitattributes` 是根本解。
+- **修改任何 `.sh` / `.py` / `.pyx` 后**：如果用户没做分支切换，一般不会触发再次 CRLF；
+  但如果又出现同样症状，先 `head -3 <file> | od -c | head -3` 看头几行是不是 `\r\n`，
+  确认后 `sed -i 's/\r$//' <file>` 单独修 —— **不要**全项目扫描。
+
+### 4.7.3 已收口的 § 1 § 2 事项状态更新
+
+- **§ 1.B1** ✅ 完成（rsync exclude + WSL 侧清理）
+- **§ 1.C1 + C3 + D3** ✅ 完成（apksigner 封装 + 双参强制）
+- **§ 1.D1** ✅ 完成（v17 debug 真机数据入 probe-report + development_plan + test-plan）
+- **§ 1.E2** ✅ 完成（AC-PERF 老口径 `{1,5,10,20}` 换成 v17 debug `{2,5,15,30}` 数据）
+- **§ 1.C2** —— 待真机 F3 完成（v17 装机 + AC-PERF signed Release 复采）
+- **§ 1.F3~F6** —— 待用户开闸
+
+现在**已具备真机测试条件**：v18 debug + release 两个 APK 都在 D 盘 `bin/`，
+证书指纹与 v17 一致，Android 8.0+ 可直接 `adb install`。
+
+### 4.7.4 stage3-real-test 分支时序（用户实际操作）
+
+- 本会话结尾 `problem-solution` 合到 `release`（用户操作）
+- 从 `release` 拉 `stage3-real-test` 分支做真机测试调试（用户操作）
+- 本文档的 § 4.7 与相关 v18 SHA 记录 commit 落在 `stage3-real-test`
+- 未来 `stage3-real-test` 完成真机测试后合回 `release`，最终合入 `main`
+
+---
+
 ## 5. 结束语（给下一个会话的 AI）
 
 用户已经因为**多次疏忽 + C 盘占用问题 + v16/v17 命名脱节**积累了不满。**你必须：**

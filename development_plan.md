@@ -596,6 +596,33 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
   - v17 debug APK SHA-256 未记录（APK 丢失，用户明规不追补）
   - signed Release APK 的 AC-PERF 复采待 C2 门槛开闸后进行（预计与 debug 差异 5-15%）
 
+##### v18 打包端到端验证（2026-07-31）
+
+`wsl_build_android.sh` 重写为 `<mode> <version>` 双参强制 + apksigner 封装
+（B1/C1/C3/D3 落地）之后，跑一次真实 v18 debug + release 打包验证脚本
+端到端通路：
+
+| 版本 | SHA-256 | 大小 | 签名主体 |
+|---|---|---:|---|
+| v18 debug | `afe99948f82017608862cf6c74c6c92f5d88e098120a339c9b703e40b8d20059` | 33.13 MiB | Android debug |
+| v18 signed Release | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | 33.13 MiB | `CN=Apeiria-network, C=CN` |
+
+- 证书 SHA-256 fingerprint `54c1bbbf...` 与 v17 逐位一致（同 keystore）。
+- WSL + D 盘两处 SHA 各自匹配 —— `cp -a` 保真。
+- apksigner verify 报告 v2 + v3 scheme 都 true；v1 false（因 minapi=26，apksigner 自动跳）。
+- 打包脚本每条支路都跑过：参数校验、rsync exclude spec.local、Cython 交叉编译、
+  buildozer 出 unsigned、apksigner heredoc stdin 传口令、verify + keytool 摘要、
+  目标文件已存在 exit 4（release v18 首跑时触发过一次防误覆盖）、`cp -a` 到 D 盘 + sha256sum。
+
+**过程中遇到 CRLF 事故**：分支切换到 `stage3-real-test` 时 git `core.autocrlf=true`
+把所有 `.sh` 从 LF 转 CRLF，bash 读到 `set -euo pipefail\r` 时报
+`invalid option name`。**已修**：`sed -i 's/\r$//' scripts/*.sh` 剥掉 CR，
+新增根级 `.gitattributes` 永久锁定 `.sh`/`.py`/`.pyx`/`buildozer.spec` 等
+Unix 工具消费的文件走 LF；`.png`/`.jks`/`.apk` 显式标 binary。
+详见 [stage3-block3-problems.md § 4.7](stage3-block3-problems.md) 事故复盘。
+
+**下一步**：v18 signed Release 已就位，具备真机测试条件（F3~F6 开闸后走）。
+
 Block 3 收官条件：signed Release APK v17 SHA-256 记录 + AC-PERF 真机中位数
 达标 + 飞行模式主链路通过。
 
