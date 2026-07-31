@@ -274,6 +274,16 @@ C1 与 C3 合并为一次修改。**下一个会话不要单独处理 C1**（已
      - [development_plan.md](development_plan.md)：阶段 3 Block 3 段落补一小节"v17 debug 真机测试完成情况"
      - [docs/test-plan.md](docs/test-plan.md) AC-PERF 条目：把"沿用 v7 debug 参考数据"改成"基于 v17 debug 真机基准"（配合 E2 一起做）
   3. **注意**：v17 debug 数据是 debug 签名的 APK，不是 signed Release APK。AC-PERF 目标要求的是"签名 Release APK 的数据"（§10.2）。debug vs release 性能差异一般 5-15%（Cython nogil 段的差异微乎其微），可以在文档里注明"debug 数据作为 signed Release 前的参考基准；signed Release APK 复采需真机测试通过后进行"（这跟 C2 挂钩）。
+- **本会话执行状态（2026-07-31，Step 5）**：**已完成**（跟 E2 合并做）。
+  - 用户提供数据：小米 K80 Pro / Android 16 / RAM 16+6 GB / 2026-07-31 采集。
+  - v17 debug APK SHA-256：**未记录**（用户明规"拿不到"，APK 已丢失；文档中直接标注"未记录"，不追补）。
+  - AC-PERF `{2,5,15,30}` × 5 次中位数 + P95 + peak_rss 全部 PASS（余量 ≥ 34×），30 轮实测 1.533 s 与 v7 阶段外推 "~1.53 s" 几乎完全吻合，Cython 路径稳定。
+  - 数据来源附注：v17 APK 打包早于 `self_test.py` 的 `stage0_perf.json → stage3_bench.json` 重命名，v17 装机跑出的 JSON 仍是老文件名；JSON 原文用户丢失，数据以 App 内自检屏截图为准（用户 IDE 截图证据）。
+  - 三份文档同步：
+    - [docs/probe-report.md](docs/probe-report.md) 追加"阶段 3 v17 debug 真机基准（2026-07-31）"章节，包含设备信息 + AC-PERF 表 + v7 对比 + 待补齐清单；同时给 v7 章节头部加历史标注。
+    - [development_plan.md](development_plan.md) Block 3 段：`Block 3 尚待用户参与` 5 项标注完成度（keystore/Release/fingerprint 已完成，AC-PERF 部分完成，walk-through 暂停），新增子小节"v17 debug 真机测试完成情况"。
+    - [docs/test-plan.md](docs/test-plan.md)：§ 1 目标验收设备改为 K80 Pro，冻结阈值补 2 轮 ≤ 6 s + 5 轮 ≤ 9 s 两档，AC-PERF 条目老口径 v7 数据整段替换为 v17 新口径 + PASS 判定 + 状态标记。
+  - **未跑 pytest**（纯文档改动）。
 
 #### D2. `docs/release-notes.md` 表格里的 v15 debug SHA-256 占位
 
@@ -327,6 +337,7 @@ C1 与 C3 合并为一次修改。**下一个会话不要单独处理 C1**（已
      - 状态标记从 "⏳ Stage 3 Block 3 出 signed Release APK 后复采一次即可签署" 改成 "✅ v17 debug 已在 1920×1080 × {2,5,15,30} × 5 次采集通过；signed Release APK 复采待真机装机（C2 门槛后）"。
   2. `docs/probe-report.md` 里 v7 章节保留（历史记录），追加"注意：v7 数据是老轮次集 {1,5,10,20}，仅作历史参考；当前口径见阶段 3 v17 debug 章节"。
   3. 不需要跑 pytest（纯文档）。
+- **本会话执行状态（2026-07-31，Step 5）**：**已完成**（并入 D1 一次修改，见上方 D1 收口）。核心动作：`docs/test-plan.md` AC-PERF 条目老口径整段替换为新口径 v17 数据 + PASS 判定；`docs/probe-report.md` v7 章节头部加历史标注（老轮次集 `{1,5,10,20}` 仅作参考，当前口径见 v17 debug 章节）。
 
 ---
 

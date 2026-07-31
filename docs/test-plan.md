@@ -28,15 +28,19 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 
 ### 目标验收设备（AC-PERF、AC-016 人工部分）
 
-- **性能验收设备**：待用户在 Stage 3 Block 3 时指定 8GB RAM arm64 中端机型。
-  在设备型号冻结前，AC-PERF 沿用 v7 debug APK 数据作为**参考证据**，正式
-  验收在 v17 signed Release APK 上复采一次。
-- **飞行模式验收设备**：同一台性能验收机（AC-016）。
+- **性能验收设备（当前）**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)。
+  v17 debug APK 已在此机器完成 1920×1080 × `{2,5,15,30}` × 5 次 AC-PERF 采集
+  （2026-07-31，每档 ≥ 34× 余量 PASS —— 详见
+  [`docs/probe-report.md`](probe-report.md) § 阶段 3 v17 debug 真机基准）。
+- **signed Release 复采**：待 F3~F6 真机测试开闸后，在同一台 K80 Pro 上用 v18+ signed
+  Release APK 复跑一次。
+- **飞行模式验收设备**：同一台 K80 Pro（AC-016）。
 
 ### 冻结阈值
 
 - **性能目标**（§10.2）：1920×1080 8 位 RGB，签名 Release APK，连续 5 次中位数
-  - 1 轮 ≤ 3 s
+  - 2 轮 ≤ 6 s
+  - 5 轮 ≤ 9 s
   - 15 轮 ≤ 27 s
   - 30 轮 ≤ 52 s
 - **视觉质量阈值**（§12.3.3 三项自动指标）：见 [`docs/algorithm-v1.md`](algorithm-v1.md) §A.13。
@@ -174,13 +178,26 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 
 ### AC-PERF —— 自动：性能与内存
 
-- **自动**：真机基准脚本（Stage 3 Block 3 补，见 `scripts/benchmark_release.py`
-  计划）跑 1920×1080 × {2,5,15,30} × 5 次采 median / P95 / 峰值 RSS。
-- **v7 debug APK 参考数据**（详见 [`docs/probe-report.md`](probe-report.md)）：
-  - 1 轮 0.060 s / 5 轮 0.268 s / 10 轮 0.543 s / 20 轮 1.072 s
-  - 30 轮预估 ~1.53 s（外推），峰值 RSS 274.7 MiB
-  - 每一档以 34× 以上余量通过 §10.2 目标
-- **状态**：⏳ Stage 3 Block 3 出 signed Release APK 后复采一次即可签署。
+- **自动**：真机基准直接由 App 内置自检屏 `Stage 3 AC-PERF 基准` 按钮跑
+  1920×1080 × `{2, 5, 15, 30}` × 5 次 encrypt-only，median + P95 + 峰值 RSS
+  自动落 App 私有目录 JSON（v17 遗留文件名 `stage0_perf.json`，v18+ 会用
+  `stage3_bench.json`）。
+- **v17 debug 真机数据**（2026-07-31 采集，小米 K80 Pro / Android 16 /
+  RAM 16+6 GB；详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v17
+  debug 真机基准）：
+
+  | rounds | median | P95 | peak_rss | 目标 | verdict |
+  |---:|---:|---:|---:|---:|:---|
+  |  2 | 0.103 s | 0.105 s | 269.3 MiB |  6 s | ✅ PASS (~58×) |
+  |  5 | 0.256 s | 0.256 s | 269.6 MiB |  9 s | ✅ PASS (~35×) |
+  | 15 | 0.767 s | 0.767 s | 270.0 MiB | 27 s | ✅ PASS (~35×) |
+  | 30 | 1.533 s | 1.536 s | 270.5 MiB | 52 s | ✅ PASS (~34×) |
+
+  实现 = `registry V1 backend = cython`；总扫描 12.9 s；每档以 ≥ 34× 余量通过。
+- **状态**：✅ v17 debug 已在 1920×1080 × `{2,5,15,30}` × 5 次采集通过（新口径）；
+  signed Release APK 复采待 C2 门槛开闸后真机装机时进行。debug vs Release
+  性能差异一般 5–15%（Cython nogil 段几乎不受签名影响），预计复采仍以 ≥ 30×
+  余量通过。
 
 ### AC-016 —— 联合：Manifest 权限 + 飞行模式
 
