@@ -667,4 +667,31 @@ Block 3 收官条件：**已达成**
 - ✅ AC-PERF 真机中位数 K80 Pro 上 v18 signed Release 每档 ≥ 68× 余量 PASS
 - ✅ 飞行模式主链路 PNG + JPEG + 保存 + 恢复通过
 
+##### Stage 3 Block 4 验收表核对与隐私诊断收口（2026-08-03）
 
+1. **AC-011 失败诊断修正**：`reversible_mosaic/ui/file_picker.py` 不再把 Android
+   picker/provider traceback 写入 `picker_error.log`，也不输出 URI、路径或 provider
+   异常文本；`reversible_mosaic/app.py::_on_failed` 仅输出异常类型，并向 UI 显示固定的
+   可重试提示。保留 Android picker → Kivy chooser fallback，不引入新的日志系统。
+2. **回归覆盖**：扩展 `tests/unit/test_android_native.py`，注入唯一 content URI、本地路径和
+   分享代码，断言 picker/pipeline 失败诊断不会回显或持久化敏感值；另断言 share gateway
+   只收到固定 subject。`tests/unit/test_pipeline.py` 既有用例明确覆盖去除元数据后的逐像素
+   恢复和输出文件名不含规范化分享代码。
+3. **验收文档**：`docs/test-plan.md` 升级为 Stage 3 测试报告，校正 AC-008 精确用例引用，
+   记录 AC-011 行为级证据，保留 v18 signed Release 的历史真机证据与 AC-015 内部 MVP
+   单人例外；AC-017 继续要求交付时实际核对 APK、许可证材料、交付目录及签署清单。
+   `docs/source-index.md` 同步 picker 安全诊断和相关回归测试用途。
+4. **验证结果**：
+   - `python -m pytest tests/unit/test_android_native.py tests/unit/test_pipeline.py`：**18 passed**。
+   - `python -m pytest`：**253 passed / 21 skipped**（2026-08-03）；21 项均为 Windows
+     未构建 Cython V1 后端的既有 skip。
+   - `python -m ruff check .`：**9 diagnostics**，均位于 `main.py`、
+     `scripts/enumerate_recipes.py`、`scripts/p4a_local_recipes/numpy/__init__.py` 与
+     `scripts/prototype_r4_neighborhood_swap.py` 的既有基线文件；Block 4 修改文件无新增项。
+   - `python -m mypy reversible_mosaic tests`：**23 diagnostics**，与历史基线一致；
+     Block 4 新增的 `test_android_native.py` 诊断已消除，剩余输出仅位于既有
+     `test_exif_orientation.py`、`test_normalize.py`、`test_task_coordinator.py` 和
+     `test_v1_vectors.py` 基线文件。
+
+**Block 4 仍属人工/交付责任的事项**：不得由文档历史记录替代实际留存核验；AC-017 清单、
+第三方许可证包、交付 APK 和公开/商业发布所需的三名独立视觉检查者仍待实际执行。

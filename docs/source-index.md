@@ -596,8 +596,9 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`ui/file_picker.py`](../reversible_mosaic/ui/file_picker.py)
 - **作用**：阶段 2a 引入，2b 完善为**双实现**。Android 侧走
   `Intent.ACTION_GET_CONTENT`（Android 13+ 自动映射到系统 Photo Picker）；PC
-  侧用 Kivy `FileChooserListView` + `Popup` 兜底。异常时自动 fallback
-  Kivy chooser，日志落 `{user_data_dir}/picker_error.log`。
+  侧用 Kivy `FileChooserListView` + `Popup` 兜底。Android chooser 或 URI 导入失败时
+  自动 fallback 到 Kivy chooser；诊断只输出固定非敏感类别，不记录 traceback、URI、路径或
+  provider 异常详情。
 - **类型别名**：`SelectionCallback = Callable[[Path, str | None], None]`。
   第二参数是原图 display name —— Android 侧通过
   `OpenableColumns.DISPLAY_NAME` 查 ContentResolver 拿到；PC 侧就是
@@ -726,7 +727,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 | [`test_png_metadata.py`](../tests/unit/test_png_metadata.py) | `io/png_metadata.py` | schema 校验、tEXt only、重复 keyword |
 | [`test_exif_orientation.py`](../tests/unit/test_exif_orientation.py) | `io/normalize.py` JPEG EXIF | Orientation 1–8 都正确 transpose |
 | [`test_algorithm_v1.py`](../tests/unit/test_algorithm_v1.py) | `algorithm/reference_v1.py` | 边缘尺寸、Alpha 保真、非法输入 |
-| [`test_pipeline.py`](../tests/unit/test_pipeline.py) | `core/pipeline.py` | encrypt→decrypt 闭环、stage 顺序、cancel 传递 |
+| [`test_pipeline.py`](../tests/unit/test_pipeline.py) | `core/pipeline.py` | encrypt→decrypt 闭环、stage 顺序、cancel 传递；`test_encrypt_then_restore_without_metadata_dependency` 证明去除 PNG 元数据后仍可按用户提供参数逐像素恢复，并断言规范化分享代码不进入输出文件名。 |
 | [`test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) | `core/task_coordinator.py` | 成功/失败/取消/双启动/reset；Stage 3 Block 1 新增 8 case：cancel→reset→re-start、fail→reset→re-start、reset 在 mid-flight 被拒、IDLE reset noop、无回调仍完成、cancel-before-start noop、并发双 start 仅一次通过、progress 携带 stage + fraction（共 12 case） |
 | [`test_view_models.py`](../tests/unit/test_view_models.py) | `ui/view_models.py` | 表单 can_start、progress 标签映射、Stage 2b 的 ResultSnapshot save 状态转换 |
 | [`test_self_test_probes.py`](../tests/unit/test_self_test_probes.py) | `ui/self_test.py` | PC 端可跑的 4 个探针（numpy/pillow/reference_v1/v1_cython），pyjnius 探针在 PC 上应 ImportError |
@@ -735,7 +736,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 | [`test_input_hint.py`](../tests/unit/test_input_hint.py) | `ui/input_hint.py` | PNG/JPEG/异常/元数据解析共 8 case |
 | [`test_output_naming.py`](../tests/unit/test_output_naming.py) | `domain/output_naming.py` | Stage 2b: `_mosaic/_reversal_mosaic` 后缀、`_1/_2` 递增、reserved 字符 sanitize、Windows 路径注入防护 |
 | [`test_desktop_gateways.py`](../tests/unit/test_desktop_gateways.py) | `android/desktop.py` | Stage 2b: 冲突计数、input gateway 导入；Stage 3 Block 1: 10 次冲突叠加、源文件缺失 raise、mid-copy IOError、目录懒创建、大小写扩展名归一化、相同源双次导入互不覆盖（共 11 case） |
-| [`test_android_native.py`](../tests/unit/test_android_native.py) | `android/native.py`（JNI mock） | **Stage 3 Block 1 新增**：14 case。构造 gate 检查（jnius 缺失时 raise）；`publish_png` 失败注入 —— insert 返回 null、write IOError、SHA-256 mismatch、commit 抛错时**必删 pending 行**（FR-SAVE-006）；API 28 skip `_unique_display_name` query；`cleanup_orphan_pending` 在 API 28 / 异常 / null cursor 都返回 0（FR-TASK-006）；`copy_sensitive` 吞 JNI 异常（FR-ENC-007）。 |
+| [`test_android_native.py`](../tests/unit/test_android_native.py) | `android/native.py` + app/picker privacy boundaries | **Stage 3 Block 1** JNI-mocked Android gateway coverage：构造 gate；`publish_png` 失败注入时必删 pending 行（FR-SAVE-006）；API 28 不查重；`cleanup_orphan_pending` 异常安全；`copy_sensitive` 吞 JNI 异常（FR-ENC-007）。**Block 4**：注入 URI/路径/分享代码，断言 picker/pipeline 失败诊断不回显或持久化敏感详情，且分享 gateway 只收到固定 subject。 |
 
 ### [`tests/property/test_algorithm_properties.py`](../tests/property/test_algorithm_properties.py)
 - 用 Hypothesis 生成任意 `(w, h, mode, seed, rounds)`，断言

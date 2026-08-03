@@ -1,6 +1,6 @@
 # 测试计划与 AC 追踪（阶段 3）
 
-> **版本**：0.1.0（阶段 3 起草，2026-07-30）
+> **版本**：0.1.0（阶段 3 测试报告，2026-08-03）
 > **对应需求档**：[`requirements_product_v1.md`](../requirements_product_v1.md) §12–§14
 > **状态标记**：✅ 通过 / ⏳ 进行中 / ⏱ 待人工 / ❌ 未通过 / — 不适用
 
@@ -9,9 +9,8 @@
 - **证据位置**：具体测试文件、脚本输出或人工签署单
 - **状态**：当前进度
 
-Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工部分暂
-标 ⏱ 待人工；Block 4（AC 全表验收）结束后本文档整体升级为**测试报告**
-交付物。
+已在 2026-08-03 完成 Block 4 文档核对；历史真机证据保留其原始采集
+日期，未在本轮重新执行设备测试。
 
 ---
 
@@ -115,10 +114,10 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 
 ### AC-008 —— 自动：删除元数据后仍能逐像素恢复
 
-- **证据**：[`tests/unit/test_pipeline.py`](../tests/unit/test_pipeline.py) 涵盖 encrypt→decrypt
-  往返；[`tests/adversarial/test_malicious_inputs.py::test_write_png_serializes_metadata_that_parses_back`](../tests/adversarial/test_malicious_inputs.py)
-  验证元数据往返；元数据删除后靠用户输入参数即可 —— 见 §12.2 item 7 需求。
-- **状态**：✅ 自动全绿。**Block 1 新增**验证。
+- **证据**：[`tests/unit/test_pipeline.py::test_encrypt_then_restore_without_metadata_dependency`](../tests/unit/test_pipeline.py)
+  明确去除 PNG 元数据后，以用户提供的算法版本、轮数和分享代码逐像素恢复；同一测试还
+  断言加密输出文件名不含规范化分享代码。
+- **状态**：✅ 自动全绿。
 
 ### AC-009 —— 人工：可选择参数执行恢复 + 可修改参数重试
 
@@ -135,13 +134,15 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 ### AC-011 —— 自动：分享代码不泄漏（PNG / 文件名 / 日志 / 历史 / 分享文字）
 
 - **证据**：
-  - PNG：[`reversible_mosaic/io/png_metadata.py::MosaicMetadata`](../reversible_mosaic/io/png_metadata.py) schema 里没有
-    分享码字段。
-  - 文件名：[`reversible_mosaic/domain/output_naming.py`](../reversible_mosaic/domain/output_naming.py) 只用原名 + `_mosaic` 后缀，
-    与分享码解耦。
-  - 分享文字：[`reversible_mosaic/android/native.py::AndroidOutputGateway.share`](../reversible_mosaic/android/native.py) 的 subject 是
-    App 通用标识，覆盖测试见 [`tests/unit/test_android_native.py::test_share_subject_never_contains_share_code`](../tests/unit/test_android_native.py)。
-- **状态**：✅ 自动全绿。**Block 1 加固**。
+  - PNG 与文件名：[`tests/unit/test_pipeline.py::test_encrypt_then_restore_without_metadata_dependency`](../tests/unit/test_pipeline.py)
+    断言规范化分享代码不出现在输出文件名；[`reversible_mosaic/io/png_metadata.py::MosaicMetadata`](../reversible_mosaic/io/png_metadata.py)
+    schema 不含分享代码字段。
+  - 分享边界：[`tests/unit/test_android_native.py::test_share_gateway_receives_fixed_subject_without_share_code`](../tests/unit/test_android_native.py)
+    断言 gateway 只接收固定 subject；分享代码仅在用户明确触发复制时进入剪贴板。
+  - 诊断边界：[`tests/unit/test_android_native.py::test_picker_failures_do_not_emit_or_persist_provider_details`](../tests/unit/test_android_native.py)
+    与 `test_pipeline_failure_diagnostics_hide_input_and_share_code` 注入唯一 URI、路径和分享代码，
+    断言 picker 不持久化 traceback，picker/pipeline 诊断不输出敏感值。
+- **状态**：✅ 自动全绿。Block 4 已移除会泄漏 provider 异常详情的 picker/pipeline 诊断。
 
 ### AC-012 —— 联合：MediaStore 成功/失败/回滚 + 相册可见 + 分享 + 不覆盖输入
 
@@ -230,7 +231,8 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 ### AC-017 —— 人工：交付物清点
 
 - 见 [`docs/build-android.md`](build-android.md) § 6 交付物清单。
-- **状态**：⏱ Block 3/4 收官后由用户对照清单勾。
+- **状态**：⏱ 待实际交付时由用户对照 [`docs/build-android.md`](build-android.md) § 6 清单签署。
+  当前不以历史文档代替 APK、第三方许可证包及交付目录的实际留存核验。
 
 ---
 
@@ -242,7 +244,7 @@ Stage 3 Block 3（Release APK + 真机验收）之前，联合类 AC 的人工�
 | **property (hypothesis)** | 5 tests / ~170 examples | ✅ | 0 | V1 是双射 / 确定性 / Alpha 守恒 / 高轮数双射 / 非平凡输出 |
 | **vectors** | 2 tests | ✅ | 0 | V1 冻结固定向量在参考与 registry 后端均对齐 |
 | **adversarial** | 58 | ✅ | 0 | Block 1 扩展 PNG chunk / metadata schema / JPEG / write_png 四大类 fuzz |
-| **合计** | **250 passed / 21 skipped** | | | Stage 3 Block 1 结束时数据 |
+| **合计（Block 4）** | **253 passed / 21 skipped** | ✅ | 21（Windows 无 Cython） | 2026-08-03 完整 pytest；Block 4 新增隐私回归已纳入 |
 
 Stage 3 Block 2/3/4 的新增 case（Release APK 打包冒烟、性能基准、飞行模式
 walk-through）落在真机人工/联合类，不进 pytest 主套件。
@@ -257,21 +259,15 @@ walk-through）落在真机人工/联合类，不进 pytest 主套件。
 
 ---
 
-## 5. 后续更新
+## 5. Block 4 收官记录（2026-08-03）
 
-**Block 3 已收官（2026-07-31）**：本文档已追加
-
-- ✅ v18 signed Release APK 的 AC-PERF 实测中位数 / P95 / 峰值 RSS 表格（AC-PERF 条目）
-- ✅ Manifest 权限 aapt dump 验证结果（AC-016 自动部分）
-- ✅ 飞行模式 + PNG + JPEG + 深浅色 + 大字体人工走查记录（AC-016 人工部分 + AC-003 人工部分 + AC-012 人工部分）
-
-**Block 3 仍未落地的验收**（Block 4 由用户对照 AC-017 清单收官时决定是否补做）：
-
-- 系统分享接收方 App 列表快照（哪些能拉起 SEND Intent）—— AC-011 分享文字不含分享码已由自动测试覆盖，
-  人工接收方列表快照仅作为参考证据，MVP 内部发布不阻塞
-- 冷启动 AC-PERF 数据 —— MVP 内部发布使用热启动数据足够；正式发布前建议补一次
-- 约定"低端 8 GB arm64 机型"复采 —— K80 Pro 是 flagship，68× 余量给了低端机 headroom；
-  正式面向公开用户发布前需实测确认
-
-Block 4 结束时本文档定稿为**测试报告**并入 `docs/release-notes.md` 的
-"§ 5 版本历史 v0.1.0"作为交付物。
+- 已修正 Android picker 与 pipeline 失败路径：诊断仅输出固定类别和异常类型，
+  不再写入 traceback 或回显 provider URI、路径、原文件名及分享代码。
+- 已新增行为级 AC-011 回归测试；本轮验证结果为 focused pytest **18 passed**、完整 pytest
+  **253 passed / 21 skipped**。`ruff check .` 与 `mypy reversible_mosaic tests` 分别保留
+  **9** 与 **23** 项历史基线诊断，Block 4 修改文件没有新增诊断。
+- 保留 2026-07-31 的 v18 signed Release 真机、性能和 Manifest 证据；本轮不重复
+  设备测试，也不把历史记录等同于当前交付物留存。
+- AC-015 仍仅适用于内部 MVP 的单人偏差路径；公开或商业发布必须由至少三名独立
+  检查者按 §12.3 重跑。
+- AC-017 仍须由交付负责人核对实际 APK、许可证材料、交付目录和签署清单后完成。
