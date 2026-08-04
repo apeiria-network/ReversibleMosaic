@@ -162,9 +162,10 @@ v18 signed Release APK 在小米 K80 Pro / Android 16 上完成 Stage 3 Block 3 
 
 ## 6. 第三方组件与许可清单
 
-本 App 打包的开源依赖及其许可协议如下。所有许可原文将随交付物一并提供
-（`reversible_mosaic/assets/fonts/LICENSE.txt` + Stage 3 Block 3 补齐的
-`THIRD_PARTY_LICENSES/` 目录）。
+本 App 打包的开源依赖及其许可协议如下。交付目录必须包含本仓库跟踪的
+[`THIRD_PARTY_LICENSES/`](../THIRD_PARTY_LICENSES/)（运行时组件许可/通知清单与原文）；
+WenQuanYi 字体的完整许可同时作为 APK 资源位于
+[`reversible_mosaic/assets/fonts/LICENSE.txt`](../reversible_mosaic/assets/fonts/LICENSE.txt)。
 
 ### 6.1 APK 运行时组件
 

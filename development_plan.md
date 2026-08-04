@@ -695,3 +695,26 @@ Block 3 收官条件：**已达成**
 
 **Block 4 仍属人工/交付责任的事项**：不得由文档历史记录替代实际留存核验；AC-017 清单、
 第三方许可证包、交付 APK 和公开/商业发布所需的三名独立视觉检查者仍待实际执行。
+
+##### Stage 3 Block 4 交付准备（2026-08-04）
+
+**已完成（自动/文档）**：
+
+1. 新增 [`THIRD_PARTY_LICENSES/`](THIRD_PARTY_LICENSES/) 交付级许可证与通知包：
+   `README.md` 将 APK 运行时组件映射到版本/recipe 和许可原文；WenQuanYi 字体仍以 APK
+   内 `reversible_mosaic/assets/fonts/LICENSE.txt` 为权威副本，不重复维护。
+2. [`docs/build-android.md`](docs/build-android.md) §7 重写为可核验交付清单：每项需求
+   §16 交付物都对应仓库路径或明确的外部签名 APK，并引用合成/视觉图集的来源、许可和
+   SHA-256 manifest 与 `artifacts/visual_review_sources/sources.csv`。
+3. [`docs/test-plan.md`](docs/test-plan.md) 的 AC-017 增加逐项复选和验收人/日期/APK hash
+   签署栏；状态保持 **⏱ 待人工**，历史真机证据不替代最终交付目录的实物留存核验。
+4. [`docs/release-notes.md`](docs/release-notes.md) 与 [`docs/source-index.md`](docs/source-index.md)
+   已同步许可证包、APK 内字体许可、视觉/合成图集 manifest 的维护与验收用途。
+5. **本轮验证**：`python -m pytest -q` 为 **253 passed / 21 skipped**；
+   `python scripts/hash_visual_review_sources.py --check` 确认 20 张视觉源图与
+   `sources.csv` 的来源、许可、SHA-256 清单一致。`ruff check .` 的 9 项与
+   `mypy reversible_mosaic tests` 的 23 项均为既有基线诊断，未由本轮文档/许可证
+   交付准备引入。
+
+**仍需人工完成**：交付负责人实际留存并检查最终签名 Release APK、执行签名/hash 对照，
+完成 AC-017 签署；公开或商业发布前仍需按需求 §12.3 组织至少三名独立检查者重跑视觉验收。

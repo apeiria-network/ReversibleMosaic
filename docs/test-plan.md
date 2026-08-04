@@ -230,9 +230,22 @@
 
 ### AC-017 —— 人工：交付物清点
 
-- 见 [`docs/build-android.md`](build-android.md) § 6 交付物清单。
-- **状态**：⏱ 待实际交付时由用户对照 [`docs/build-android.md`](build-android.md) § 6 清单签署。
-  当前不以历史文档代替 APK、第三方许可证包及交付目录的实际留存核验。
+- **执行方**：产品验收人。按需求档 §16 与 [`docs/build-android.md`](build-android.md) §7
+  逐项核验最终交付目录；本仓库的历史记录不替代实际 APK 与材料留存检查。
+- **签署前清单**：
+  - [ ] 源码、`pyproject.toml`、`requirements-dev.lock`、`buildozer.spec` 完整可读。
+  - [ ] V1 算法规范、注册表与 `tests/vectors/algorithm_v1.json` 均在交付物中。
+  - [ ] `tests/`、合成/视觉图集生成脚本、`docs/test-plan.md` 与 `docs/probe-report.md` 均在交付物中。
+  - [ ] 三份 `artifacts/synthetic_test_set/*/manifest.csv` 与
+    `artifacts/visual_review_sources/sources.csv` 可供核对来源、许可和 SHA-256。
+  - [ ] 构建基线、`wsl_build_android.sh`、`docs/source-index.md` 可复现构建路径。
+  - [ ] 最终签名 Release APK 已实际留存；SHA-256、`apksigner verify` 输出与
+    `docs/release-notes.md` 的证书 fingerprint 一致。
+  - [ ] `THIRD_PARTY_LICENSES/` 与 APK 内 `reversible_mosaic/assets/fonts/LICENSE.txt`
+    都包含在交付物；教程、隐私边界与发行说明完整。
+- **签署栏**：验收人：____________　验收日期：____________　APK 文件 SHA-256：____________
+- **状态**：⏱ 待实际交付时由用户签署。当前不以历史文档代替 APK、许可证材料及交付目录的
+  实际留存核验。
 
 ---
 

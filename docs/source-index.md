@@ -708,6 +708,19 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`assets/fonts/LICENSE.txt`](../reversible_mosaic/assets/fonts/LICENSE.txt)
 - wqy-microhei 的许可声明。发布 APK 时会一起打入 tarball。
 
+### [`THIRD_PARTY_LICENSES/`](../THIRD_PARTY_LICENSES/)
+- **作用**：Stage 3 Block 4 的交付级运行时第三方许可证与通知包；与
+  [`docs/release-notes.md`](release-notes.md) §6 的 APK 组件表一一对应，供 AC-017
+  实物清点使用。
+- **内容**：`README.md` 映射组件、固定版本/recipe 与许可证原文；同目录的
+  `PSF-2.0.txt`、`MIT.txt`、`BSD-3-Clause.txt`、`HPND.txt`、`Apache-2.0.txt`、
+  `ZLIB.txt`、`LIBPNG.txt`、`PUBLIC-DOMAIN.txt` 是相应运行时组件的许可/通知文本。
+  WenQuanYi 字体许可不重复复制，APK 内权威副本保持在
+  [`assets/fonts/LICENSE.txt`](../reversible_mosaic/assets/fonts/LICENSE.txt)。
+- **改动指引**：修改 `buildozer.spec` 运行时依赖或 p4a recipe 版本时，同步更新
+  `README.md`、补齐新增组件的许可原文，并复核 `docs/release-notes.md` §6 与
+  `docs/build-android.md` §7；不要为许可证收集另建构建脚本。
+
 ---
 
 ## 测试（`tests/`）
@@ -789,7 +802,14 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 
 ## 构建 & 探测脚本（`scripts/`）
 
-### 视觉验收 / 质量报告
+### 合成测试集
+
+#### [`scripts/generate_synthetic_test_set.py`](../scripts/generate_synthetic_test_set.py)
+- **作用**：确定性生成 `artifacts/synthetic_test_set/` 下的 RGBA、边界与恶意输入样本。
+  每个类别的 `manifest.csv` 记录文件名、SHA-256、类别、说明与 `本项目 CC0` 许可，供
+  AC-017 核对测试集来源、许可和完整性。
+- **命令**：`python scripts/generate_synthetic_test_set.py`。重生成后必须审阅三份
+  `manifest.csv`，并同步交付前的 [`docs/build-android.md`](build-android.md) §7 清单引用。
 
 #### [`scripts/generate_visual_review_set.py`](../scripts/generate_visual_review_set.py)
 - **作用**：阶段 1 引入。读 `artifacts/visual_review_sources/` 下的固定图集，
@@ -802,7 +822,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   - `artifacts/visual_review/metrics.json` —— 每张 × 每种子 × 每轮数的 5 项
     指标（像素变化率、水平/垂直/对角相邻相关性、边缘相似度）+ 按轮数/种子聚合的汇总
   - `artifacts/visual_review/scorecard.md` —— **单人 MVP 变体** 评分表模板
-    （§12.3 单人验收偏差，2026-07-29 记录）
+    （§12.3 单人验收偏差，2026-07-29 记录）；输入图的来源、许可和 SHA-256 则由
+    `artifacts/visual_review_sources/sources.csv` 记录，是 AC-017 的图集核验依据。
 - **命令**：`python scripts/generate_visual_review_set.py --sources <input_dir>
   --output <output_dir>`。默认 `--sources artifacts/visual_review_sources
   --output artifacts/visual_review`。**每次执行会先 rmtree 输出目录**。

@@ -301,19 +301,32 @@ adb shell run-as io.placeholder.reversiblemosaic cat files/stage3_bench.json > s
 
 ## 7. 交付物清单（对应需求档 §16）
 
-阶段 3 结束时必须交付：
+交付负责人必须在最终交付目录中逐项核验以下材料，再在
+[`docs/test-plan.md`](test-plan.md) 的 AC-017 清单签署。仓库中的历史 hash、真机记录和
+构建说明只构成证据，**不替代**对最终 APK 与交付目录的实际检查。
 
-1. 完整 Python/Kivy 工程源码（本仓库）+ 依赖锁定：[`requirements-dev.lock`](../requirements-dev.lock)、
-   [`pyproject.toml`](../pyproject.toml)、[`buildozer.spec`](../buildozer.spec)
-2. 算法设计 + 版本注册规则 + 固定向量：[`docs/algorithm-v1.md`](algorithm-v1.md)、
-   [`tests/vectors/algorithm_v1.json`](../tests/vectors/algorithm_v1.json)
-3. 自动化测试 + 性能测试 + 合成样本脚本 + 测试报告：
-   [`tests/`](../tests/)、[`scripts/generate_visual_review_set.py`](../scripts/generate_visual_review_set.py)、
-   [`docs/test-plan.md`](test-plan.md)
-4. 测试集清单 + 来源 + 许可 + SHA-256：
-   [`artifacts/visual_review/scorecard.md`](../artifacts/visual_review/scorecard.md)
-5. Buildozer.spec + SDK/NDK 配置 + 构建文档：本文档 + 上面 § 3
-6. **可安装的签名 Release APK**：Stage 3 Block 3 出 v17；SHA-256 与
-   签名 fingerprint 记录到 [`docs/release-notes.md`](release-notes.md)
-7. 用户教程（App 内置 TutorialScreen）+ 隐私说明（本 README 与需求档 §11）+
-   第三方许可：[`docs/release-notes.md`](release-notes.md) § 第三方许可清单
+1. **完整工程与依赖锁定**：仓库源码、[`requirements-dev.lock`](../requirements-dev.lock)、
+   [`pyproject.toml`](../pyproject.toml)、[`buildozer.spec`](../buildozer.spec)。
+2. **算法设计、注册与固定向量**：[`docs/algorithm-v1.md`](algorithm-v1.md)、
+   [`reversible_mosaic/core/algorithm/registry.py`](../reversible_mosaic/core/algorithm/registry.py)、
+   [`tests/vectors/algorithm_v1.json`](../tests/vectors/algorithm_v1.json)。
+3. **自动测试、性能测试、合成样本脚本与测试报告**：[`tests/`](../tests/)、
+   [`scripts/generate_synthetic_test_set.py`](../scripts/generate_synthetic_test_set.py)、
+   [`scripts/generate_visual_review_set.py`](../scripts/generate_visual_review_set.py)、
+   [`docs/test-plan.md`](test-plan.md)、[`docs/probe-report.md`](probe-report.md)。
+4. **测试集来源、许可与 SHA-256**：合成集的
+   [`artifacts/synthetic_test_set/rgba/manifest.csv`](../artifacts/synthetic_test_set/rgba/manifest.csv)、
+   [`boundary/manifest.csv`](../artifacts/synthetic_test_set/boundary/manifest.csv) 与
+   [`adversarial/manifest.csv`](../artifacts/synthetic_test_set/adversarial/manifest.csv)；视觉图集的
+   [`artifacts/visual_review_sources/sources.csv`](../artifacts/visual_review_sources/sources.csv) 与
+   [`artifacts/visual_review/scorecard.md`](../artifacts/visual_review/scorecard.md)。
+5. **构建配置与文档**：[`buildozer.spec`](../buildozer.spec)、本构建基线、
+   [`docs/source-index.md`](source-index.md) 与 [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)。
+6. **可安装的签名 Release APK**：最终交付目录中的版本化 APK；逐项核对其 SHA-256、
+   `apksigner verify` 结果与 [`docs/release-notes.md`](release-notes.md) 的证书 fingerprint。
+   `bin/` 为忽略的构建产物，必须由交付负责人实际留存和检查。
+7. **用户教程、隐私说明、发行说明与第三方许可**：App 内 `TutorialScreen`、需求档 §11、
+   [`docs/release-notes.md`](release-notes.md)、[`THIRD_PARTY_LICENSES/`](../THIRD_PARTY_LICENSES/)
+   及 APK 内的 [`reversible_mosaic/assets/fonts/LICENSE.txt`](../reversible_mosaic/assets/fonts/LICENSE.txt)。
+
+**未完成项**：AC-017 是人工验收；本清单准备完成并不代表已经签署或通过。
