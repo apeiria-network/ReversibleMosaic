@@ -91,6 +91,10 @@
    `buildozer.spec::p4a.source_dir` 保持一致。
 4. 手动下载 NDK r25b：
    `~/.buildozer/android/platform/android-ndk-r25b/`（Buildozer 会用这个目录）。
+   项目与全局 `.buildozer` 被手动清理后，构建脚本会自行确认并补齐 Android 34、
+   Platform-Tools、Build-Tools 36.0.0；若 sdkmanager 尚未初始化，会先让 Buildozer
+   bootstrap，失败后补齐 SDK 基线并自动重试一次。NDK r25b 仍须由 Buildozer 成功恢复或
+   由此步骤手动准备。
 5. 首次预取 p4a tarballs：
    ```bash
    wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_prefetch_p4a.sh
@@ -116,13 +120,13 @@ wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl
 
 `scripts/wsl_build_android.sh` 会在 buildozer 之前调
 [`scripts/wsl_build_v1_cython.sh`](../scripts/wsl_build_v1_cython.sh) 把
-`reversible_mosaic/core/algorithm/v1.pyx` 交叉编译成
-`v1.cpython-314-aarch64-linux-android.so`（cython 3.2.9 + NDK r25b clang-14 +
-target Python 3.14 头）。buildozer 通过 `source.include_exts = ...,so,...`
-把 loose `.so` 打进 APK。**首次冷启动时目标 Python 3.14 头文件还未生成,
-第一次调用 Cython 脚本只做 `.pyx → .c` 一步返回 0；buildozer 建好 dist 后
-需要再次运行 Cython 脚本得到 `.so`**。目前 `wsl_build_android.sh` 已
-串联好两个阶段。
+`reversible_mosaic/core/algorithm/v1.so`（Cython 3.2.9 + NDK r25b clang-14 +
+target Python 3.14 头）。buildozer 通过 `source.include_exts = ...,so,...` 与
+`source.include_patterns` 中的精确路径把 loose `.so` 打进 APK。**首次冷启动时目标
+Python 3.14 头文件还未生成，第一次调用 Cython 脚本只生成 `.pyx → .c` 并以 exit 3
+要求 bootstrap；`wsl_build_android.sh` 会先建 dist、重新运行脚本链接并验证 arm64
+`v1.so`，再进行最终 APK 打包。若第二次不能得到该模块，构建会失败而不会交付
+reference-only APK。**
 
 ### 3.4 版本后缀与产物回拷（脚本自动完成）
 

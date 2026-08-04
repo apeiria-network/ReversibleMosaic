@@ -163,10 +163,7 @@ def _probe_reference_v1() -> str:
 
 
 def _probe_v1_cython() -> str:
-    try:
-        import reversible_mosaic.core.algorithm.v1 as v1_cython  # type: ignore[import-not-found]
-    except ImportError as exc:
-        return f"NOT_BUILT: {exc}"
+    import reversible_mosaic.core.algorithm.v1 as v1_cython  # type: ignore[import-not-found]
 
     import numpy as np
 

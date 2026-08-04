@@ -139,7 +139,21 @@ v18 signed Release APK 在小米 K80 Pro / Android 16 上完成 Stage 3 Block 3 
 | **v17 signed Release** | **31.6 MiB** (33,115,120 B) | `546dc561005b2a02745d6ec10bdfdcc4cd46a33cd4c26f435e208a49919b0394` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 | v18 debug (Stage 3 Block 3) | 33.13 MiB | `afe99948f82017608862cf6c74c6c92f5d88e098120a339c9b703e40b8d20059` | debug keystore (v1+v2) | Android debug | — |
 | **v18 signed Release** | 31.60 MiB (33,135,600 B) | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
+| **v19 signed Release（冷缓存恢复验证，Cython 缺失）** | 31.55 MiB (33,090,544 B) | `2f320d04c759588ea2b91fe336721237b5272cbafb7860ee818e1d92a179f1c1` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
+| **v20 debug（Cython 打包修复验证）** | 32.65 MiB (34,234,772 B) | `9f56c720eb8b2099c141e122bb090072c256d8324b34afab7dd1d87f2a766ba7` | debug keystore (v1+v2) | Android debug | — |
 
+**v19 冷缓存恢复验证（2026-08-05）**：用户手动删除项目及全局 Buildozer 缓存后，以
+`wsl_build_android.sh release v19` 成功完成 SDK bootstrap、APK 打包和 D 盘签名。脚本输出的
+WSL 与 D 盘文件 SHA-256 相同；随后对 D 盘 APK 独立执行 `apksigner verify --verbose --print-certs`
+复核，v2、v3 均通过，签名证书与 v17/v18 相同。**但该 APK 的真机 Cython 探针报告模块缺失，
+实际回退为 reference backend；v19 因此不具备 AC-PERF/最终交付验收资格，必须由修复后的构建
+入口重建并完成 APK 内容、真机探针与基准复核。**
+
+**v20 Cython 打包修复验证（2026-08-05）**：单入口脚本先链接并校验裸名 AArch64
+`v1.so`，再完成 APK 打包；APK 内容检查确认 `assets/private.tar` 包含
+`reversible_mosaic/core/algorithm/v1.so`（165,712 B）。用户在真机手动确认“V1 Cython 优化”
+探针符合预期。v20 为 debug 诊断 APK；尚未留存 v20 的 AC-PERF JSON，不能替代最终签名
+Release 交付或 AC-017 核验。
 **v17 → v18 差异**：v18 是 v17 之后针对 Stage 3 Block 3 问题清单的收官版
 （B1 隔离 + C1/C3/D3 apksigner 封装 + `.gitattributes` LF 归一化）。**代码
 运行时逻辑无实质差异**（V1 冻结、Cython 内层、UI 主链路、Android gateway

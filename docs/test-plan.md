@@ -213,6 +213,14 @@
   | 30 | 0.762 s | 0.766 s | 484.8 MiB | 52 s | ✅ PASS (~68×) |
 
   实现 = `registry V1 backend = cython`；总扫描 8.6 s；每档以 ≥ 68× 余量通过。
+- **v20 debug Cython 修复验证（2026-08-05）**：APK 静态检查已确认包内 `v1.so` 为 AArch64
+  ELF，用户真机手动确认“V1 Cython 优化”探针符合预期。**AC-PERF 仍待用户手动运行并留存
+  `stage3_bench.json`**；在该数据补齐前，v20 只构成 Cython 模块打包与加载修复证据，不新增
+  性能验收结论。
+- **v19 signed Release 限制（2026-08-05）**：冷缓存恢复构建虽通过签名与哈希复核，但真机
+  Cython 探针显示模块缺失并回退 reference backend，故 **v19 不得作为 AC-PERF 或最终交付
+  验收 APK**。须使用修复后的单入口脚本重建并核验 APK 内 `v1.so`、探针加载和 benchmark JSON
+  的 `registry V1 backend = cython` 后，才可恢复该结论。
 
 ### AC-016 —— 联合：Manifest 权限 + 飞行模式
 

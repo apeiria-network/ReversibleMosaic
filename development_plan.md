@@ -156,13 +156,12 @@
 1. **`setup.py`** 项目根就位（PC 侧 Cython 编译入口；MSVC 自动跳过），
    `p4a.setup_py = 1` 试过一轮：**p4a 不会自动跑 pip install**，模式下
    APK 里只剩 `main.pyc`，`reversible_mosaic/` 整个丢失 —— 回退到 loose file。
-2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在 buildozer 前把
-   `v1.pyx` 交叉编译为 `v1.cpython-314-aarch64-linux-android.so`
-   （Cython 3.x + NDK `aarch64-linux-android26-clang` + target Python 3.14 头），
-   直接落在源码树；`buildozer.spec` `source.include_exts` 加 `so`；p4a 当
-   loose file 打进 APK。
+2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在目标 dist 就绪后把
+   `v1.pyx` 交叉编译为裸名 `v1.so`（Cython 3.x + NDK `aarch64-linux-android26-clang` +
+   target Python 3.14 头），直接落在源码树；`buildozer.spec` 显式包含该路径，p4a 当
+   loose file 打进 APK。冷缓存时主构建脚本会先 bootstrap dist、重新链接并验证扩展，再打最终包。
 3. **`_probe_v1_cython` v6 装机 PASS**：`Cython 模块加载 OK;
-   lift_forward/lift_inverse 复原一致`。
+   neighborhood_swap forward/inverse 复原一致`。
 4. **numpy patch 已持久化**：`scripts/p4a_local_recipes/numpy/` 覆盖 p4a
    内置 recipe，加 `patches = ["patches/numpy_unordered_map_include.patch"]`；
    清 `.buildozer/` 后自动应用，无需人工。
@@ -176,7 +175,7 @@
 
 | 子项 | 结果 |
 |---|---|
-| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; lift_forward/lift_inverse 复原一致`** |
+| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; neighborhood_swap forward/inverse 复原一致`** |
 | 其他 4 项 | ✅ 无回归（pyjnius / numpy / pillow / V1 参考实现全部保持 PASS） |
 | 6. 256×256 性能扫描（还是参考实现） | 20 轮 median 25.6 s，20 轮 p95 25.6 s（v5 是 37.6 s / 49.1 s，抖动而已） |
 
@@ -731,8 +730,17 @@ Block 3 收官条件：**已达成**
   （约 128 MiB）以及 `/var/cache/apt`（约 423 MiB）；合计约 7.2 GiB。
 - `/home/hydrogen/src/ReversibleMosaic/artifacts`（约 3.4 GiB）是 D 盘权威
   `artifacts/` 的 WSL 同步副本，仅在清单给出的逐文件 SHA-256 核对通过后才允许用户手动删除。
-- 删除 `.buildozer` 会使下一次 Android 构建成为冷构建，需按
-  `docs/build-android.md` §3.1 恢复 SDK/NDK 并重新运行既有构建脚本；D 盘源码、验收材料、
-  APK、keystore 与 `buildozer.spec.local` 均不属于清理范围。
+- 删除 `.buildozer` 会使下一次 Android 构建成为冷构建。`scripts/wsl_build_android.sh` 会在
+  sdkmanager 已存在时补齐 Android 34、Platform-Tools 与 Build-Tools 36.0.0，并删除缺少
+  `aidl` 的不完整 Build-Tools 目录；若 SDK 尚未初始化，则先让 Buildozer bootstrap，失败后
+  自动补齐并重试一次。NDK r25b 仍由 Buildozer/既有基线恢复或按 `docs/build-android.md` §3.1
+  手动准备；D 盘源码、验收材料、APK、keystore 与 `buildozer.spec.local` 均不属于清理范围。
+- **Cython 缺失修复验证（2026-08-05）**：`release v19` 的真机探针暴露冷缓存构建只生成
+  `v1.c`、未在目标 Python headers 出现后重新链接 `v1.so` 的缺口。现有单入口改为
+  cold bootstrap → Cython arm64 `v1.so` 链接与 ELF 校验 → 最终打包；`debug v20` 已静态
+  验证 APK 内含该裸名模块（165,712 B，AArch64 ELF），WSL/D 盘 APK SHA-256 均为
+  `9f56c720eb8b2099c141e122bb090072c256d8324b34afab7dd1d87f2a766ba7`。用户已在真机手动
+  确认 Cython 探针符合预期；仍待用户自行运行并留存 v20 的 AC-PERF `stage3_bench.json`，
+  才能把 v20 作为新的性能验收证据。
 - 该方案不会重建 C 盘 `ext4.vhdx`，所以历史已删除字节残留问题仍未解决；若未来需要回收
   Windows 可见 VHDX 文件大小或处理该残留，须另行确认 WSL VHDX 压缩或导出重建方案。

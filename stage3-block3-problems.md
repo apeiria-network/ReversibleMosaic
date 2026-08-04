@@ -622,7 +622,7 @@ encrypt-only：
   （v18 起 self_test.py 用新文件名，与 v17 遗留的 `stage0_perf.json` 区分）
 - **同机 v17 debug 对比 median 快 ~50%**（例：30 轮 1.533 → 0.762 s）
   —— 归因于测试环境状态差异（手机充电时锁高频、前置探针累计 RSS）而非代码差异。
-  两个 build 用同一份 Cython `.so`（`v1.cpython-314-aarch64-linux-android.so`），字节相同。
+  两个 build 用同一份 Cython `.so`（裸名 `v1.so`），字节相同。
 - peak_rss 484.8 MiB 远低于 §10.1 60% 内存上限（16 GB × 60% ≈ 9.6 GiB）。
 
 **注**：MVP 内部发布使用 K80 Pro（flagship SoC）。正式面向公开用户发布前，

@@ -910,10 +910,15 @@ scripts/wsl_build_android.sh <debug|release> <version>`）。Stage 3 Block 3 起
 7. 通过 `GIT_CONFIG_COUNT/KEY_0/VALUE_0` 把 recipe 里 `https://github.com/*` clone
    重定向到 `https://ghfast.top/https://github.com/*` 镜像 —— **每次调用生效，
    不改用户 `~/.gitconfig`**。
-8. 调 `bash wsl_build_v1_cython.sh` 交叉编译 V1 Cython 内层。
-9. `buildozer android <mode>` 跑主构建（tee 到 `/home/hydrogen/src/reversible-mosaic-build.log`）。
-10. **Debug 分支**：`mv` 到目标名 → `cp -a` 到 D 盘 → `sha256sum` 打印。
-11. **Release 分支（Stage 3 Block 3 Q1 决策 C：apksigner 封装）**：
+8. 调 `bash wsl_build_v1_cython.sh`；若 cold cache 尚无目标 Python 头，会先 bootstrap p4a
+   dist，再重跑 Cython 并验证 arm64 裸名 `v1.so`。
+9. **SDK 基线预检与冷恢复**：sdkmanager 已存在时补齐 Build-Tools 36.0.0、Platform-Tools、
+   Android 34 platform，并删除缺少可执行 `aidl` 的不完整 Build-Tools 目录；全局
+   `.buildozer` 已被手动清理而 sdkmanager 尚未生成时，先让 Buildozer bootstrap，失败后补齐
+   基线并自动重试一次。此过程不删除任何缓存，也不处理 NDK r25b 的既有准备要求。
+10. `buildozer android <mode>` 跑主构建（tee 到 `/home/hydrogen/src/reversible-mosaic-build.log`）。
+11. **Debug 分支**：`mv` 到目标名 → `cp -a` 到 D 盘 → `sha256sum` 打印。
+12. **Release 分支（Stage 3 Block 3 Q1 决策 C：apksigner 封装）**：
     - buildozer 因 WSL 侧无 spec.local 产出 `*-release-unsigned.apk`（预期行为）
     - 用 `grep -m1 + ${line#*=}` 从 `/mnt/d/.../buildozer.spec.local` 只按首个 `=`
       切出 `android.release_keystore/keyalias/keystore_passwd/keyalias_passwd`
@@ -1019,23 +1024,23 @@ NDK r25b clang-14 + libc++ 没有 GCC/glibc 的传递包含，numpy 2.3.0 源码
   这个脚本仅作为紧急手动兜底。
 
 #### [`scripts/wsl_build_v1_cython.sh`](../scripts/wsl_build_v1_cython.sh)
-v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx` 交叉编译为
-`reversible_mosaic/core/algorithm/v1.cpython-314-aarch64-linux-android.so`，
-直接落在 WSL workspace 的源码树里，让 buildozer 当 loose file 打进 APK。
+v6 引入。把 `reversible_mosaic/core/algorithm/v1.pyx` 交叉编译为裸名
+`reversible_mosaic/core/algorithm/v1.so`，直接落在 WSL workspace 的源码树里，让
+Buildozer 当 loose file 打进 APK。
 - **步骤**：
   1. `cython -3` 把 `.pyx` → `.c`
   2. NDK `aarch64-linux-android26-clang -shared -fPIC` 把 `.c` → `.so`
      链接 target Python 3.14 `libpython3.14.so` + `liblog`
   3. 目标 Python 3.14 头文件在
      `.buildozer/android/platform/build-arm64-v8a/build/other_builds/python3/arm64-v8a__ndk_target_26/python3/android-build/android-root/include/python3.14/`
-- **首次冷启动**（`.buildozer/` 不存在或 dist 未建）时目标 Python 头缺席，
-  脚本只做 cython → .c 一步，返回 0；`wsl_build_android.sh` 检测到后继续跑
-  buildozer，dist 建好后**要求二次调用本脚本**才能得到 .so。
-- **谁调用**：`wsl_build_android.sh` 在 rsync + prefetch 之后、buildozer 之前
-  调一次；不进 APK（`scripts/` 在 `source.exclude_dirs`）。
+- **首次冷启动**（`.buildozer/` 不存在或 dist 未建）时目标 Python 头缺席，脚本会完成
+  cython → `.c` 后以 exit 3 明确要求 bootstrap；`wsl_build_android.sh` 先建立 dist、
+  再次调用脚本链接并检查 arm64 `v1.so`，最后才打最终 APK。任何 Cython 编译或验证失败
+  都终止构建，不能交付 reference-only APK。
+- **谁调用**：`wsl_build_android.sh` 在 rsync + prefetch 后调用；脚本集中处理冷缓存的
+  bootstrap 与最终打包，不进 APK（`scripts/` 在 `source.exclude_dirs`）。
 - **改动指引**：加新 .pyx → 更新脚本里的 `SRC`/`GEN_C`/`OUT_SO` 或改成循环处理
-  多个模块；确保输出 `.so` 名字含 `cpython-<py-major><py-minor>-<abi>-linux-android`
-  这样 CPython 才认。
+  多个模块；Android 运行时采用裸 `.so` 后缀，不能改回 tagged CPython 文件名。
 
 ### p4a 本地 recipe 覆盖
 
