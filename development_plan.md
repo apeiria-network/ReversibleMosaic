@@ -156,13 +156,12 @@
 1. **`setup.py`** 项目根就位（PC 侧 Cython 编译入口；MSVC 自动跳过），
    `p4a.setup_py = 1` 试过一轮：**p4a 不会自动跑 pip install**，模式下
    APK 里只剩 `main.pyc`，`reversible_mosaic/` 整个丢失 —— 回退到 loose file。
-2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在 buildozer 前把
-   `v1.pyx` 交叉编译为 `v1.cpython-314-aarch64-linux-android.so`
-   （Cython 3.x + NDK `aarch64-linux-android26-clang` + target Python 3.14 头），
-   直接落在源码树；`buildozer.spec` `source.include_exts` 加 `so`；p4a 当
-   loose file 打进 APK。
+2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在目标 dist 就绪后把
+   `v1.pyx` 交叉编译为裸名 `v1.so`（Cython 3.x + NDK `aarch64-linux-android26-clang` +
+   target Python 3.14 头），直接落在源码树；`buildozer.spec` 显式包含该路径，p4a 当
+   loose file 打进 APK。冷缓存时主构建脚本会先 bootstrap dist、重新链接并验证扩展，再打最终包。
 3. **`_probe_v1_cython` v6 装机 PASS**：`Cython 模块加载 OK;
-   lift_forward/lift_inverse 复原一致`。
+   neighborhood_swap forward/inverse 复原一致`。
 4. **numpy patch 已持久化**：`scripts/p4a_local_recipes/numpy/` 覆盖 p4a
    内置 recipe，加 `patches = ["patches/numpy_unordered_map_include.patch"]`；
    清 `.buildozer/` 后自动应用，无需人工。
@@ -176,7 +175,7 @@
 
 | 子项 | 结果 |
 |---|---|
-| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; lift_forward/lift_inverse 复原一致`** |
+| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; neighborhood_swap forward/inverse 复原一致`** |
 | 其他 4 项 | ✅ 无回归（pyjnius / numpy / pillow / V1 参考实现全部保持 PASS） |
 | 6. 256×256 性能扫描（还是参考实现） | 20 轮 median 25.6 s，20 轮 p95 25.6 s（v5 是 37.6 s / 49.1 s，抖动而已） |
 
@@ -667,4 +666,81 @@ Block 3 收官条件：**已达成**
 - ✅ AC-PERF 真机中位数 K80 Pro 上 v18 signed Release 每档 ≥ 68× 余量 PASS
 - ✅ 飞行模式主链路 PNG + JPEG + 保存 + 恢复通过
 
+##### Stage 3 Block 4 验收表核对与隐私诊断收口（2026-08-03）
 
+1. **AC-011 失败诊断修正**：`reversible_mosaic/ui/file_picker.py` 不再把 Android
+   picker/provider traceback 写入 `picker_error.log`，也不输出 URI、路径或 provider
+   异常文本；`reversible_mosaic/app.py::_on_failed` 仅输出异常类型，并向 UI 显示固定的
+   可重试提示。保留 Android picker → Kivy chooser fallback，不引入新的日志系统。
+2. **回归覆盖**：扩展 `tests/unit/test_android_native.py`，注入唯一 content URI、本地路径和
+   分享代码，断言 picker/pipeline 失败诊断不会回显或持久化敏感值；另断言 share gateway
+   只收到固定 subject。`tests/unit/test_pipeline.py` 既有用例明确覆盖去除元数据后的逐像素
+   恢复和输出文件名不含规范化分享代码。
+3. **验收文档**：`docs/test-plan.md` 升级为 Stage 3 测试报告，校正 AC-008 精确用例引用，
+   记录 AC-011 行为级证据，保留 v18 signed Release 的历史真机证据与 AC-015 内部 MVP
+   单人例外；AC-017 继续要求交付时实际核对 APK、许可证材料、交付目录及签署清单。
+   `docs/source-index.md` 同步 picker 安全诊断和相关回归测试用途。
+4. **验证结果**：
+   - `python -m pytest tests/unit/test_android_native.py tests/unit/test_pipeline.py`：**18 passed**。
+   - `python -m pytest`：**253 passed / 21 skipped**（2026-08-03）；21 项均为 Windows
+     未构建 Cython V1 后端的既有 skip。
+   - `python -m ruff check .`：**9 diagnostics**，均位于 `main.py`、
+     `scripts/enumerate_recipes.py`、`scripts/p4a_local_recipes/numpy/__init__.py` 与
+     `scripts/prototype_r4_neighborhood_swap.py` 的既有基线文件；Block 4 修改文件无新增项。
+   - `python -m mypy reversible_mosaic tests`：**23 diagnostics**，与历史基线一致；
+     Block 4 新增的 `test_android_native.py` 诊断已消除，剩余输出仅位于既有
+     `test_exif_orientation.py`、`test_normalize.py`、`test_task_coordinator.py` 和
+     `test_v1_vectors.py` 基线文件。
+
+**Block 4 仍属人工/交付责任的事项**：不得由文档历史记录替代实际留存核验；AC-017 清单、
+第三方许可证包、交付 APK 和公开/商业发布所需的三名独立视觉检查者仍待实际执行。
+
+##### Stage 3 Block 4 交付准备（2026-08-04）
+
+**已完成（自动/文档）**：
+
+1. 新增 [`THIRD_PARTY_LICENSES/`](THIRD_PARTY_LICENSES/) 交付级许可证与通知包：
+   `README.md` 将 APK 运行时组件映射到版本/recipe 和许可原文；WenQuanYi 字体仍以 APK
+   内 `reversible_mosaic/assets/fonts/LICENSE.txt` 为权威副本，不重复维护。
+2. [`docs/build-android.md`](docs/build-android.md) §7 重写为可核验交付清单：每项需求
+   §16 交付物都对应仓库路径或明确的外部签名 APK，并引用合成/视觉图集的来源、许可和
+   SHA-256 manifest 与 `artifacts/visual_review_sources/sources.csv`。
+3. [`docs/test-plan.md`](docs/test-plan.md) 的 AC-017 增加逐项复选和验收人/日期/APK hash
+   签署栏；状态保持 **⏱ 待人工**，历史真机证据不替代最终交付目录的实物留存核验。
+4. [`docs/release-notes.md`](docs/release-notes.md) 与 [`docs/source-index.md`](docs/source-index.md)
+   已同步许可证包、APK 内字体许可、视觉/合成图集 manifest 的维护与验收用途。
+5. **本轮验证**：`python -m pytest -q` 为 **253 passed / 21 skipped**；
+   `python scripts/hash_visual_review_sources.py --check` 确认 20 张视觉源图与
+   `sources.csv` 的来源、许可、SHA-256 清单一致。`ruff check .` 的 9 项与
+   `mypy reversible_mosaic tests` 的 23 项均为既有基线诊断，未由本轮文档/许可证
+   交付准备引入。
+
+**仍需人工完成**：交付负责人实际留存并检查最终签名 Release APK、执行签名/hash 对照，
+完成 AC-017 签署；公开或商业发布前仍需按需求 §12.3 组织至少三名独立检查者重跑视觉验收。
+
+##### Stage 3 后续：WSL C 盘按需手动清理（2026-08-05）
+
+用户选择**不迁移整个 WSL Ubuntu**，改为在不需要 Android 编译时手动删除可重建的 WSL
+缓存与同步副本，减少 C 盘占用；不引入自动清理脚本。根目录本机文件
+`LOCAL_WSL_CLEANUP.md`（`.gitignore` 排除，禁止提交/推送）记录绝对路径、实测大小、
+删除影响、手动命令与恢复步骤。
+
+- 可直接手动清理：`/home/hydrogen/src/ReversibleMosaic/.buildozer`（约 4.0 GiB）、
+  `/home/hydrogen/.buildozer`（约 2.7 GiB）、`/home/hydrogen/src/ReversibleMosaic/bin`
+  （约 128 MiB）以及 `/var/cache/apt`（约 423 MiB）；合计约 7.2 GiB。
+- `/home/hydrogen/src/ReversibleMosaic/artifacts`（约 3.4 GiB）是 D 盘权威
+  `artifacts/` 的 WSL 同步副本，仅在清单给出的逐文件 SHA-256 核对通过后才允许用户手动删除。
+- 删除 `.buildozer` 会使下一次 Android 构建成为冷构建。`scripts/wsl_build_android.sh` 会在
+  sdkmanager 已存在时补齐 Android 34、Platform-Tools 与 Build-Tools 36.0.0，并删除缺少
+  `aidl` 的不完整 Build-Tools 目录；若 SDK 尚未初始化，则先让 Buildozer bootstrap，失败后
+  自动补齐并重试一次。NDK r25b 仍由 Buildozer/既有基线恢复或按 `docs/build-android.md` §3.1
+  手动准备；D 盘源码、验收材料、APK、keystore 与 `buildozer.spec.local` 均不属于清理范围。
+- **Cython 缺失修复验证（2026-08-05）**：`release v19` 的真机探针暴露冷缓存构建只生成
+  `v1.c`、未在目标 Python headers 出现后重新链接 `v1.so` 的缺口。现有单入口改为
+  cold bootstrap → Cython arm64 `v1.so` 链接与 ELF 校验 → 最终打包；`debug v20` 已静态
+  验证 APK 内含该裸名模块（165,712 B，AArch64 ELF），WSL/D 盘 APK SHA-256 均为
+  `9f56c720eb8b2099c141e122bb090072c256d8324b34afab7dd1d87f2a766ba7`。用户已在真机手动
+  确认 Cython 探针符合预期；仍待用户自行运行并留存 v20 的 AC-PERF `stage3_bench.json`，
+  才能把 v20 作为新的性能验收证据。
+- 该方案不会重建 C 盘 `ext4.vhdx`，所以历史已删除字节残留问题仍未解决；若未来需要回收
+  Windows 可见 VHDX 文件大小或处理该残留，须另行确认 WSL VHDX 压缩或导出重建方案。

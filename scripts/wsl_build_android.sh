@@ -140,9 +140,38 @@ export PATH="$BUILD_VENV/bin:$PATH"
 export VIRTUAL_ENV="$BUILD_VENV"
 unset PYTHONHOME
 
-# --------- 交叉编译 V1 Cython 内层 ---------
-bash "$WORKSPACE/scripts/wsl_build_v1_cython.sh" || {
-    echo "[wsl_build_android] v1 cython step failed; will retry after buildozer builds the dist"
+# --------- Android SDK 预检与冷恢复 ---------
+# ~/.buildozer 被手动删除后，Buildozer 会先重建 sdkmanager；其首次初始化有时只留下
+# 不完整的最高版本 build-tools 目录，随后因找不到 aidl 而退出。这里固定补齐本项目
+# 的 Android 34 / Build-Tools 36.0.0 基线；若 sdkmanager 尚未生成，首次 buildozer
+# 调用负责生成它，失败后本脚本自动补齐并只重试一次。
+SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+SDK_MANAGER="$SDK_ROOT/tools/bin/sdkmanager"
+SDK_BUILD_TOOLS="$SDK_ROOT/build-tools/36.0.0"
+
+ensure_android_sdk_baseline() {
+    if [ ! -x "$SDK_MANAGER" ]; then
+        echo "[sdk] sdkmanager not initialized; Buildozer will bootstrap it first"
+        return 1
+    fi
+
+    echo "[sdk] ensuring build-tools 36.0.0, platform-tools, platforms;android-34"
+    yes | "$SDK_MANAGER" --sdk_root="$SDK_ROOT" \
+        "build-tools;36.0.0" "platform-tools" "platforms;android-34"
+
+    # 不完整目录不能提供 aidl；删除它们可避免 Buildozer 优先选择无效的高版本。
+    for candidate in "$SDK_ROOT"/build-tools/*; do
+        [ -d "$candidate" ] || continue
+        [ -x "$candidate/aidl" ] || {
+            echo "[sdk] removing incomplete build-tools: $candidate"
+            rm -rf "$candidate"
+        }
+    done
+
+    if [ ! -x "$SDK_BUILD_TOOLS/aidl" ]; then
+        echo "[error] Android Build-Tools 36.0.0 aidl is unavailable after SDK recovery" >&2
+        return 1
+    fi
 }
 
 # --------- github.com → ghfast.top 镜像 ---------
@@ -155,7 +184,46 @@ cd "$WORKSPACE"
 
 # --------- buildozer 构建 ---------
 # 注意：不能再用 exec，因为 release 分支之后还要跑 apksigner。
-buildozer android "$BUILD_MODE" 2>&1 | tee -a "$LOG"
+# 首次全局缓存恢复时 sdkmanager 尚不存在：让 Buildozer 先初始化一次；若它因缺 aidl
+# 退出，补齐冻结 SDK 基线后自动重试。正常增量构建只执行一次。
+run_buildozer() {
+    if ensure_android_sdk_baseline; then
+        buildozer android "$BUILD_MODE" 2>&1 | tee -a "$LOG"
+    else
+        echo "[sdk] bootstrapping SDK through Buildozer"
+        first_rc=0
+        buildozer android "$BUILD_MODE" 2>&1 | tee -a "$LOG" || first_rc=$?
+        if [ "$first_rc" -eq 0 ]; then
+            echo "[sdk] Buildozer completed during SDK bootstrap"
+        else
+            ensure_android_sdk_baseline
+            echo "[sdk] retrying Buildozer after SDK recovery"
+            buildozer android "$BUILD_MODE" 2>&1 | tee -a "$LOG"
+        fi
+    fi
+}
+
+# --------- 交叉编译 V1 Cython 内层 ---------
+# 冷缓存下，p4a 的目标 Python headers 只会在首次 Buildozer 调用后出现。先让 helper
+# 明确报告 bootstrap-required，再建立 dist、重新链接 v1.so，最后重新执行 Buildozer 把
+# 已验证的 arm64 扩展装入 APK；绝不把缺少扩展的状态包装成 reference-only APK。
+cython_rc=0
+bash "$WORKSPACE/scripts/wsl_build_v1_cython.sh" || cython_rc=$?
+case "$cython_rc" in
+    0)
+        ;;
+    3)
+        echo "[cython] bootstrapping p4a target dist before final package build"
+        run_buildozer
+        bash "$WORKSPACE/scripts/wsl_build_v1_cython.sh"
+        ;;
+    *)
+        echo "[error] V1 Cython build failed (rc=$cython_rc)" >&2
+        exit "$cython_rc"
+        ;;
+esac
+
+run_buildozer
 
 # --------- 后处理 ---------
 mkdir -p "$WORKSPACE/bin"

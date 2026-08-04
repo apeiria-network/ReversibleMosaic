@@ -9,9 +9,8 @@
 #
 # Requires that p4a has already built the arm64 Python 3.14 target once (i.e.,
 # the v5 dist exists on disk). If the target Python is missing, this script
-# still runs a Cython .c generation step but skips the clang link — the calling
-# script should then invoke buildozer once to build the dist and re-run this
-# script.
+# still runs a Cython .c generation step but exits 3 so the calling build entry
+# can bootstrap the dist, rerun this script, and never package a fallback-only APK.
 set -euo pipefail
 
 WORKSPACE="/home/hydrogen/src/ReversibleMosaic"
@@ -48,10 +47,9 @@ echo "[cython] cythonize $SRC -> $GEN_C"
 "$CYTHON_BIN" -3 --line-directives -o "$GEN_C" "$SRC"
 
 if [ ! -f "$PY_INCLUDE/Python.h" ]; then
-    echo "[cython] target Python 3.14 headers missing; skipping clang link."
+    echo "[cython] target Python 3.14 headers missing; bootstrap required."
     echo "[cython] Expected: $PY_INCLUDE/Python.h"
-    echo "[cython] Run buildozer once first to build the arm64 dist, then rerun."
-    exit 0
+    exit 3
 fi
 
 if [ ! -x "$CLANG" ]; then
@@ -74,5 +72,15 @@ echo "[cython] compile $GEN_C -> $OUT_SO"
     -lpython3.14 \
     -llog
 
+if [ ! -s "$OUT_SO" ]; then
+    echo "[cython] expected extension missing or empty: $OUT_SO" >&2
+    exit 1
+fi
+if ! file "$OUT_SO" | grep -q 'ELF 64-bit.*shared object, ARM aarch64'; then
+    echo "[cython] expected an arm64 shared object: $OUT_SO" >&2
+    file "$OUT_SO" >&2
+    exit 1
+fi
+
 echo "[cython] built $(basename "$OUT_SO") ($(stat -c '%s' "$OUT_SO") bytes)"
-file "$OUT_SO" || true
+file "$OUT_SO"

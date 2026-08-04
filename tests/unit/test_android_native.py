@@ -16,8 +16,10 @@ Android platform behavior. These tests document the control-flow contract:
 
 from __future__ import annotations
 
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -287,5 +289,67 @@ def test_clipboard_swallows_missing_activity() -> None:
             mActivity = None
 
         with patch.object(native, "_autoclass", return_value=_NoActivity):
-            gw = native.AndroidClipboardGateway()
-            gw.copy_sensitive("500000")  # no raise
+            native.AndroidClipboardGateway().copy_sensitive("500000")  # no raise
+
+# ---------------------------------------------------------------------------
+# AC-011 diagnostic and share-boundary privacy
+# ---------------------------------------------------------------------------
+
+
+def test_picker_failures_do_not_emit_or_persist_provider_details(
+    tmp_path: Path,
+) -> None:
+    from reversible_mosaic.ui import file_picker
+
+    marker = "content://provider/private/secret-741852.png?code=741852"
+    app = MagicMock()
+    app.user_data_dir = str(tmp_path)
+    fallback = MagicMock(name="fallback")
+
+    with (
+        patch.object(file_picker, "_HAS_JNIUS", True),
+        patch.object(file_picker, "_open_android_gallery", side_effect=RuntimeError(marker)),
+        patch.object(file_picker, "_open_kivy_filechooser", fallback),
+        patch.object(cast(Any, file_picker).App, "get_running_app", return_value=app),
+        redirect_stdout(io.StringIO()) as output,
+    ):
+        file_picker.open_file_picker(MagicMock())
+
+    assert marker not in output.getvalue()
+    assert not (tmp_path / "picker_error.log").exists()
+    fallback.assert_called_once()
+
+
+def test_pipeline_failure_diagnostics_hide_input_and_share_code() -> None:
+    from reversible_mosaic import app as app_module
+
+    marker = "D:/private/photo-741852.png?share_code=741852"
+    screen = MagicMock()
+    app = app_module.ReversibleMosaicApp.__new__(app_module.ReversibleMosaicApp)
+    coordinator = MagicMock()
+    setattr(app, "_coordinator", coordinator)  # noqa: B010
+    setattr(app, "_get_progress_screen", MagicMock(return_value=screen))  # noqa: B010
+
+    with redirect_stdout(io.StringIO()) as output:
+        app._on_failed(RuntimeError(marker))
+
+    assert marker not in output.getvalue()
+    assert "741852" not in output.getvalue()
+    assert screen.detail_label == "图片处理失败, 请检查图片和参数后重试。"
+    coordinator.reset.assert_called_once()
+
+
+def test_share_gateway_receives_fixed_subject_without_share_code() -> None:
+    from reversible_mosaic import app as app_module
+
+    gateway = MagicMock()
+    snapshot = MagicMock(is_saved=True, saved_handle="content://media/output/42")
+    app = app_module.ReversibleMosaicApp.__new__(app_module.ReversibleMosaicApp)
+    app.last_result = snapshot
+    setattr(app, "_output_gateway_instance", MagicMock(return_value=gateway))  # noqa: B010
+
+    app.share_current_result()
+
+    gateway.share.assert_called_once_with(
+        "content://media/output/42", "ReversibleMosaic 输出"
+    )

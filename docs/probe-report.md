@@ -105,7 +105,7 @@ Windows CPython 纯 Python、RGBA、单轮：
 
 | 探针 | v5 | v6 |
 |---|---|---|
-| V1 Cython 优化 | ⏳ `NOT_BUILT: No module named 'reversible_mosaic.core.algorithm.v1'` | ✅ `Cython 模块加载 OK; lift_forward/lift_inverse 复原一致` |
+| V1 Cython 优化 | ⏳ `NOT_BUILT: No module named 'reversible_mosaic.core.algorithm.v1'` | ✅ `Cython 模块加载 OK; neighborhood_swap forward/inverse 复原一致` |
 
 其他 4 项 (`pyjnius` / `numpy` / `pillow` / V1 参考实现) 全部保持 PASS，无回归。
 
@@ -128,9 +128,9 @@ encrypt/decrypt pipeline 后重新基准。
 |---|---|---|
 | Cython 集成方式 | 未打包 | **预交叉编译 `.pyx` → arm64 `.so`**，作为 loose file 打进 APK |
 | 交叉编译工具链 | — | Cython 3.x（build venv 装的）+ NDK r25b `aarch64-linux-android26-clang` + `.buildozer` 下已建的 target Python 3.14 头 / `libpython3.14.so` |
-| 触发时机 | — | `wsl_build_android.sh` 在 buildozer 之前调 `scripts/wsl_build_v1_cython.sh` |
-| 落盘位置 | — | `reversible_mosaic/core/algorithm/v1.cpython-314-aarch64-linux-android.so`（172 KiB） |
-| APK 内路径 | — | `assets/private.tar` 内 `reversible_mosaic/core/algorithm/v1.cpython-*.so` |
+| 触发时机 | — | 冷缓存时脚本先 bootstrap p4a dist，随后交叉编译并验证，最终 Buildozer 调用才打包 |
+| 落盘位置 | — | `reversible_mosaic/core/algorithm/v1.so`（裸扩展名，约 172 KiB） |
+| APK 内路径 | — | `assets/private.tar` 内 `reversible_mosaic/core/algorithm/v1.so` |
 | numpy 补丁持久化 | 手工脚本兜底 | 抬到 `scripts/p4a_local_recipes/numpy/patches/*.patch`，`buildozer.spec` 配 `p4a.local_recipes` |
 
 **为什么不用 `p4a.setup_py = 1`**：试过一轮，p4a 的 setup.py 模式假设 app 已被

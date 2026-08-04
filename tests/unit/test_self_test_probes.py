@@ -39,6 +39,11 @@ def test_pyjnius_probe_fails_off_device() -> None:
         self_test._probe_pyjnius()
 
 
-def test_v1_cython_probe_reports_status() -> None:
-    result = self_test._probe_v1_cython()
-    assert result.startswith("NOT_BUILT") or "Cython 模块加载 OK" in result
+def test_v1_cython_probe_requires_extension() -> None:
+    try:
+        import reversible_mosaic.core.algorithm.v1  # type: ignore[import-not-found]
+    except ImportError:
+        with pytest.raises(ImportError):
+            self_test._probe_v1_cython()
+    else:
+        assert "Cython 模块加载 OK" in self_test._probe_v1_cython()
