@@ -59,23 +59,20 @@
 #### A1. WSL vhdx 占 C 盘 15-20 GB
 
 - **原始问题**：`C:\Users\ctedx\AppData\Local\Packages\CanonicalGroupLimited...\LocalState\ext4.vhdx` 内含大量构建缓存 + Android SDK/NDK + p4a source cache。从 Stage 0 起就这样，我 Stage 0 时未告知用户。
-- **用户决策**：**完成真机测试后处理**。也就是先跑完 F3/F4/F5/F6 再考虑 WSL 迁移到 D 盘。
-- **当前状态**：未处理。
-- **下一个会话该做什么**：**不要碰**。除非用户主动提起。真机测试都还没跑（被 C2 暂停），远轮不到这步。
+- **原始决策**：完成真机测试后再处理。
+- **后续决策（2026-08-05）**：不迁移整个 WSL；改为用户在不需要编译时按需手动删除可重建的 WSL 缓存与同步副本。根目录本机忽略文件 `LOCAL_WSL_CLEANUP.md` 记录绝对路径、删除影响和恢复方式，禁止提交或推送。
+- **当前状态**：手动清理清单已就位，尚未执行删除。Linux 文件删除后 C 盘 VHDX 宿主文件未必立即缩小；如需回收 Windows 可见 VHDX 大小，另行确认压缩或导出重建方案。
 
 #### A2. 每次构建往 WSL 写新 APK 副本
 
 - **原始问题**：`~/src/ReversibleMosaic/bin/` 会累积历次 APK 副本；`.buildozer/build/dists/` 里还有中间产物。
-- **用户决策**：**完成真机测试后处理**。
-- **当前状态**：未处理。
-- **下一个会话该做什么**：**不要碰**。同 A1。
+- **后续决策（2026-08-05）**：`/home/hydrogen/src/ReversibleMosaic/bin` 与项目/全局 `.buildozer` 都列入本机手动清理清单；D 盘 `bin/` 是交付 APK 的权威保留位置。清理后下一次 Android 构建将成为冷构建。
+- **当前状态**：尚未执行删除。
 
 #### A3. C 盘 vhdx 内 keystore 字节残留
 
 - **原始问题**：用户已 `rm -rf ~/src/ReversibleMosaic/keys/`，但 vhdx 是稀疏磁盘，被删除的字节仍作为"deleted"数据存在 vhdx 内部；只有 `wsl --export → --unregister → --import` 全量重打包才能真正清除。
-- **用户决策（更新 2026-07-31）**：**"完成真机测试后处理"**（与 A1/A2 归成一类）。
-- **当前状态**：暂缓，等 F3/F4/F5/F6 走完后跟 A1/A2 一起做。
-- **下一个会话该做什么**：**真机测试前不要碰**。真机测试全部通过后，可与 A1（WSL 迁 D 盘）合并做 —— `wsl --export → --unregister → --import` 到 D 盘时，vhdx 会全量重打包，keystore 字节残留自然被清除。这一次操作同时解决 A1、A2、A3 三项。
+- **当前状态**：未解决。2026-08-05 的按需缓存清理方案不重建 VHDX，不能消除已删除字节残留；未来如需处理，必须单独确认 WSL 导出重建方案。
 
 ---
 

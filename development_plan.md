@@ -718,3 +718,21 @@ Block 3 收官条件：**已达成**
 
 **仍需人工完成**：交付负责人实际留存并检查最终签名 Release APK、执行签名/hash 对照，
 完成 AC-017 签署；公开或商业发布前仍需按需求 §12.3 组织至少三名独立检查者重跑视觉验收。
+
+##### Stage 3 后续：WSL C 盘按需手动清理（2026-08-05）
+
+用户选择**不迁移整个 WSL Ubuntu**，改为在不需要 Android 编译时手动删除可重建的 WSL
+缓存与同步副本，减少 C 盘占用；不引入自动清理脚本。根目录本机文件
+`LOCAL_WSL_CLEANUP.md`（`.gitignore` 排除，禁止提交/推送）记录绝对路径、实测大小、
+删除影响、手动命令与恢复步骤。
+
+- 可直接手动清理：`/home/hydrogen/src/ReversibleMosaic/.buildozer`（约 4.0 GiB）、
+  `/home/hydrogen/.buildozer`（约 2.7 GiB）、`/home/hydrogen/src/ReversibleMosaic/bin`
+  （约 128 MiB）以及 `/var/cache/apt`（约 423 MiB）；合计约 7.2 GiB。
+- `/home/hydrogen/src/ReversibleMosaic/artifacts`（约 3.4 GiB）是 D 盘权威
+  `artifacts/` 的 WSL 同步副本，仅在清单给出的逐文件 SHA-256 核对通过后才允许用户手动删除。
+- 删除 `.buildozer` 会使下一次 Android 构建成为冷构建，需按
+  `docs/build-android.md` §3.1 恢复 SDK/NDK 并重新运行既有构建脚本；D 盘源码、验收材料、
+  APK、keystore 与 `buildozer.spec.local` 均不属于清理范围。
+- 该方案不会重建 C 盘 `ext4.vhdx`，所以历史已删除字节残留问题仍未解决；若未来需要回收
+  Windows 可见 VHDX 文件大小或处理该残留，须另行确认 WSL VHDX 压缩或导出重建方案。

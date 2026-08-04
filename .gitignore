@@ -23,6 +23,7 @@ bin/
 # and buildozer.spec.local holds the keystore password in plaintext.
 keys/
 buildozer.spec.local
+LOCAL_WSL_CLEANUP.md
 local.properties
 .env
 .cache/

@@ -1130,6 +1130,21 @@ v6 引入。**在 buildozer 之前**把 `reversible_mosaic/core/algorithm/v1.pyx
 - 排除 `.venv/`、`.buildozer/`、`bin/`（APK 产物）、`.mypy_cache/` 等。
   **不要**把 `bin/` 从忽略里拿出来 —— APK 是构建产物，靠 SHA-256 追踪即可。
 - Stage 3 起加 `keys/`、`buildozer.spec.local`、`*.jks`、`*.keystore` 四条签名素材防线。
+- `LOCAL_WSL_CLEANUP.md` 同样被忽略：这是用户本机维护的 WSL C 盘手动清理清单，含
+  WSL 绝对路径、实测大小和恢复说明，**不得提交或推送**，也不得写入任何口令或签名素材。
+
+### `LOCAL_WSL_CLEANUP.md`（本地忽略文件）
+- **作用**：Stage 3 后按需释放 WSL 所在 C 盘空间的用户手动操作清单；不是脚本，项目不会
+  自动删除任何内容。
+- **授权对象**：`/home/hydrogen/src/ReversibleMosaic/.buildozer`、
+  `/home/hydrogen/.buildozer`、`/home/hydrogen/src/ReversibleMosaic/bin` 与
+  `/var/cache/apt` 可按清单直接删除；WSL `artifacts/` 副本则必须先与 D 盘
+  `artifacts/` 做逐文件 SHA-256 核对。
+- **恢复边界**：D 盘工作区是源码、验收材料和交付 APK 的权威副本；删掉 WSL `.buildozer`
+  后下次会是冷构建，按 [`docs/build-android.md`](build-android.md) §3.1 与
+  `scripts/wsl_build_android.sh` 恢复。VHDX 宿主文件未必因 Linux 文件删除立即缩小。
+- **安全边界**：不列入或删除 `keys/`、`buildozer.spec.local`、`.jks`、`.keystore`；如 WSL
+  工作区中发现它们，只向用户报告绝对路径并由用户亲自处理。
 
 ### [`.gitattributes`](../.gitattributes)
 **Stage 3 Block 3 收官时新增**（2026-07-31 CRLF 事故的根本解）。
