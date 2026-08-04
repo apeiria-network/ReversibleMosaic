@@ -310,12 +310,11 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
             self._coordinator.reset()
 
     def _on_failed(self, exc: BaseException) -> None:
-        # Log to logcat too so genuine JNI / native crashes stay searchable.
-        print(f"[RM] pipeline failed: {type(exc).__name__}: {exc}")
+        print(f"[RM] pipeline failed: {type(exc).__name__}")
         screen = self._get_progress_screen()
         screen.stop_ticker()
         screen.stage_label = "处理失败"
-        screen.detail_label = str(exc) or exc.__class__.__name__
+        screen.detail_label = "图片处理失败, 请检查图片和参数后重试。"
         if self._coordinator is not None:
             self._coordinator.reset()
 

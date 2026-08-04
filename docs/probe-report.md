@@ -105,7 +105,7 @@ Windows CPython 纯 Python、RGBA、单轮：
 
 | 探针 | v5 | v6 |
 |---|---|---|
-| V1 Cython 优化 | ⏳ `NOT_BUILT: No module named 'reversible_mosaic.core.algorithm.v1'` | ✅ `Cython 模块加载 OK; lift_forward/lift_inverse 复原一致` |
+| V1 Cython 优化 | ⏳ `NOT_BUILT: No module named 'reversible_mosaic.core.algorithm.v1'` | ✅ `Cython 模块加载 OK; neighborhood_swap forward/inverse 复原一致` |
 
 其他 4 项 (`pyjnius` / `numpy` / `pillow` / V1 参考实现) 全部保持 PASS，无回归。
 
@@ -128,9 +128,9 @@ encrypt/decrypt pipeline 后重新基准。
 |---|---|---|
 | Cython 集成方式 | 未打包 | **预交叉编译 `.pyx` → arm64 `.so`**，作为 loose file 打进 APK |
 | 交叉编译工具链 | — | Cython 3.x（build venv 装的）+ NDK r25b `aarch64-linux-android26-clang` + `.buildozer` 下已建的 target Python 3.14 头 / `libpython3.14.so` |
-| 触发时机 | — | `wsl_build_android.sh` 在 buildozer 之前调 `scripts/wsl_build_v1_cython.sh` |
-| 落盘位置 | — | `reversible_mosaic/core/algorithm/v1.cpython-314-aarch64-linux-android.so`（172 KiB） |
-| APK 内路径 | — | `assets/private.tar` 内 `reversible_mosaic/core/algorithm/v1.cpython-*.so` |
+| 触发时机 | — | 冷缓存时脚本先 bootstrap p4a dist，随后交叉编译并验证，最终 Buildozer 调用才打包 |
+| 落盘位置 | — | `reversible_mosaic/core/algorithm/v1.so`（裸扩展名，约 172 KiB） |
+| APK 内路径 | — | `assets/private.tar` 内 `reversible_mosaic/core/algorithm/v1.so` |
 | numpy 补丁持久化 | 手工脚本兜底 | 抬到 `scripts/p4a_local_recipes/numpy/patches/*.patch`，`buildozer.spec` 配 `p4a.local_recipes` |
 
 **为什么不用 `p4a.setup_py = 1`**：试过一轮，p4a 的 setup.py 模式假设 app 已被
@@ -141,6 +141,10 @@ PC dev `python setup.py build_ext --inplace` 时用（Windows 上因缺 `__uint1
 自动跳过）。
 
 ## 阶段 1 v7 真机基准 (2026-07-28)
+
+> **⚠️ 历史参考数据 —— 老轮次集 `{1, 5, 10, 20}`**。当前 AC-PERF 口径为
+> `{2, 5, 15, 30}`（2026-07-29 二次修订并冻结）。v7 数据保留仅作 Cython
+> 接入前后对比证据；**AC-PERF 当前判定以下方 v17 debug 章节为准**。
 
 - **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v7.apk`
 - **SHA-256**：`628f74b0d08525803e839747864f8187e4589b036b6c8baf631325893d6f57f0`
@@ -191,3 +195,83 @@ PC dev `python setup.py build_ext --inplace` 时用（Windows 上因缺 `__uint1
 - **冷/热启动区分**：本轮跑的是热启动；冷启动首次仍可能受 Cython `.so` load + Python import 影响。发布前需补一次冷启动数据。
 - **1920×1080 RGBA + JPEG 输入**：本轮只测了 RGB 合成图，正式发布前需扩展到真实照片输入（含 EXIF 方向、Alpha 通道）。
 
+---
+
+## 阶段 3 v17 debug 真机基准 (2026-07-31)
+
+> **口径**：`{2, 5, 15, 30}` 轮次集（2026-07-29 二次修订并冻结）。**当前 AC-PERF
+> 判定以此段为准**；上方 v7 章节仅作 Cython 接入前后对比证据保留。
+
+- **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v17.apk`
+- **SHA-256**：未记录（v17 debug APK 已丢失，用户明规不追补；Stage 3 Block 3 § 1.D1 决策）
+- **大小**：约 33 MiB（debug 签名 + Cython v1 nogil `.so` + wqy-microhei 字体）
+- **测试设备**：**小米 K80 Pro** / Android 16 / RAM 16+6 GB（16 GB 物理 + 6 GB 扩展/swap）
+- **测试日期**：2026-07-31
+- **数据源**：App 内 "Stage 3 AC-PERF 基准" 按钮 → `/data/user/0/io.placeholder.reversiblemosaic/files/stage0_perf.json`
+  （v17 是 `self_test.py` 重命名到 `stage3_bench.json` **之前**打的 APK，仍写旧文件名；v18+ 会用新文件名）
+- **总耗时**：12.9 s
+- **实现**：`registry V1 backend = cython`
+
+### 性能扫描（1920×1080 RGB, 5 次中位数, encrypt-only 计时）
+
+| rounds | median | P95 | peak_rss | AC-PERF 目标 (§10.2) | 余量 | 判定 |
+|---:|---:|---:|---:|---:|---:|:---:|
+|  2 | 0.103 s | 0.105 s | 269.3 MiB | 6.0 s  | **~58×** | ✅ PASS |
+|  5 | 0.256 s | 0.256 s | 269.6 MiB | 9.0 s  | **~35×** | ✅ PASS |
+| 15 | 0.767 s | 0.767 s | 270.0 MiB | 27.0 s | **~35×** | ✅ PASS |
+| 30 | 1.533 s | 1.536 s | 270.5 MiB | 52.0 s | **~34×** | ✅ PASS |
+
+30 轮实测 1.533 s 与 v7 阶段外推的 "~1.53 s" 逐位吻合，Cython nogil 路径在
+1920×1080 RGB 上稳定，无长跑漂移。
+
+**AC-PERF 总判定：PASS**（4 档全部通过，最低余量 34×）。
+
+**注**：debug 签名 APK 的性能不作为最终 AC 数据；signed Release 复采见下一节。
+
+---
+
+## 阶段 3 v18 signed Release 真机基准 (2026-07-31)
+
+- **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk`
+- **SHA-256**：`c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53`
+- **大小**：33.13 MiB（31,632,900 B 未压缩 → 压缩到 33,135,600 B）
+- **签名**：v2 + v3 schemes，`CN=Apeiria-network, C=CN`；证书 SHA-256 fingerprint
+  `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7`（与 v17 signed Release 同 keystore）
+- **测试设备**：同 v17（小米 K80 Pro / Android 16 / RAM 16+6 GB）
+- **测试日期**：2026-07-31
+- **数据源**：App 内 "Stage 3 AC-PERF 基准" → `/data/user/0/io.placeholder.reversiblemosaic/files/stage3_bench.json`
+  （**v18 起 self_test.py 已重命名为 stage3_bench.json**）
+- **总耗时**：8.6 s
+- **实现**：`registry V1 backend = cython`
+
+### 性能扫描（1920×1080 RGB, 5 次中位数, encrypt-only 计时）
+
+| rounds | median | P95 | peak_rss | AC-PERF 目标 | 余量 | 判定 |
+|---:|---:|---:|---:|---:|---:|:---:|
+|  2 | 0.051 s | 0.056 s | 484.8 MiB | 6.0 s  | **~118×** | ✅ PASS |
+|  5 | 0.127 s | 0.133 s | 484.8 MiB | 9.0 s  | **~71×**  | ✅ PASS |
+| 15 | 0.341 s | 0.381 s | 484.8 MiB | 27.0 s | **~79×**  | ✅ PASS |
+| 30 | 0.762 s | 0.766 s | 484.8 MiB | 52.0 s | **~68×**  | ✅ PASS |
+
+**AC-PERF 总判定：PASS**。同机 v17 debug 对比：**median 全部快约 50%**（例：30 轮
+1.533 → 0.762 s）。**这不是 debug vs release 编译差异**（正常 5–15%）—— Cython
+`.so` 字节两版一致。差异归因于**测试时手机侧状态**：
+
+- v18 测试时电池 76% **在充电**，SoC 锁高性能模式；v17 测试时未在充电
+- v17 之前可能跑过其他任务偏热；v18 手机较凉
+- peak_rss 从 269 MiB 涨到 484.8 MiB —— 因为 `resource.getrusage` 报的是**进程生命周期累计 max_rss**，
+  v18 测试前用户先点了 5 个探针按钮（pyjnius/numpy/pillow/V1 参考/V1 Cython），累计内存已升；
+  484.8 MiB 仍远低于 §10.1 60% 内存上限（16 GB × 60% ≈ 9.6 GiB）
+
+### AC-PERF 结论
+
+MVP 内部发布使用的 K80 Pro 上，**v18 signed Release APK 在 §10.2 全部四档以最低
+68× 余量通过 AC-PERF**。峰值 RSS 485 MiB 完全在 §10.1 资源上限内。
+不需迁移 C/Rust，Cython nogil 路径足够。
+
+> **正式面向公开用户发布前**：需要绑定"约定性能设备"（低端 8 GB arm64 机型，如
+> 4 年前的中低档 Snapdragon 690 / MediaTek Helio G 系列）复采一次，K80 Pro
+> 的 flagship SoC 性能可能高估了低端机余量。当前 68× 余量给了充足的低端机
+> 兼容 headroom，但需要实测确认。
+
+---

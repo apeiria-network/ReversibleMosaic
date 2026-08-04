@@ -64,23 +64,8 @@ def open_file_picker(on_selected: SelectionCallback) -> Any:
     if _HAS_JNIUS:
         try:
             return _open_android_gallery(on_selected)
-        except Exception as exc:
-            import traceback
-
-            # Log to app private data dir so we can retrieve the traceback via
-            # the self-test screen's file browser if a crash reappears.
-            try:
-                app = App.get_running_app()
-                if app is not None:
-                    log_path = Path(app.user_data_dir) / "picker_error.log"
-                    with log_path.open("a", encoding="utf-8") as log:
-                        log.write("--- picker error ---\n")
-                        log.write(traceback.format_exc())
-                        log.write("\n")
-            except Exception:
-                pass
-            print(f"[file_picker] Android picker failed, falling back: {exc}")
-            traceback.print_exc()
+        except Exception:
+            print("[file_picker] Android picker unavailable; using desktop fallback")
             return _open_kivy_filechooser(on_selected)
     return _open_kivy_filechooser(on_selected)
 
@@ -120,18 +105,15 @@ def _open_android_gallery(on_selected: SelectionCallback) -> None:
             return
         try:
             uri = intent_data.getData()
-        except Exception as exc:
-            print(f"[file_picker] getData failed: {exc}")
+        except Exception:
+            print("[file_picker] picker returned unreadable selection")
             return
         if uri is None:
             return
         try:
             cached_path, display_name = _copy_uri_to_cache(uri, android_activity_java)
-        except Exception as exc:
-            print(f"[file_picker] failed to import URI: {exc}")
-            import traceback
-
-            traceback.print_exc()
+        except Exception:
+            print("[file_picker] selected image could not be imported")
             return
         if cached_path is None:
             return

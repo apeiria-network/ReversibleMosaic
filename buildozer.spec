@@ -9,11 +9,14 @@
 #      也跳过 p4a 包缓存 hard-link 和 github.com → ghfast.top 的 git 镜像。
 #   3. 会跳过 wsl_build_v1_cython.sh 的交叉编译，得到一个没有 v1.so
 #      的 fallback-only 包。
+#   4. 会跳过 release 分支的 apksigner 签名封装（Stage 3 Block 3 Q1 决策 C）。
 #
-# 正确姿势（PowerShell / Windows shell 里）：
-#   wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh
-# 产物在 ~/src/ReversibleMosaic/bin/ 下，手工 cp 回 D:\...\bin\ 并附 -vNN 后缀。
-# 详见 docs/source-index.md § 主构建。
+# 正确姿势（PowerShell / Windows shell 里，Stage 3 Block 3 起两参数都强制）：
+#   wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh debug v18
+#   wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v18
+# 脚本自动加版本后缀、拷回 D:\...\bin\、打印 sha256sum；release 分支还会跑
+# apksigner 签名 + verify + keytool -printcert 摘要。
+# 详见 docs/source-index.md § 主构建 与 docs/build-android.md §3.2/§5.2。
 # =============================================================================
 [app]
 title = ReversibleMosaic
@@ -22,7 +25,7 @@ package.domain = io.placeholder
 source.dir = .
 source.include_exts = py,pyx,so,kv,png,jpg,jpeg,json,md,ttf,ttc,txt
 source.exclude_dirs = .git,.venv,.idea,tests,artifacts,build,bin,.buildozer,docs,vendor,scripts
-source.include_patterns = main.py
+source.include_patterns = main.py,reversible_mosaic/core/algorithm/v1.so
 version = 0.1.0
 # Stage 0 batch 2: keep runtime requirements minimal. Cython compilation of
 # reversible_mosaic/core/algorithm/v1.pyx happens in a pre-buildozer step

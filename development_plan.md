@@ -156,13 +156,12 @@
 1. **`setup.py`** 项目根就位（PC 侧 Cython 编译入口；MSVC 自动跳过），
    `p4a.setup_py = 1` 试过一轮：**p4a 不会自动跑 pip install**，模式下
    APK 里只剩 `main.pyc`，`reversible_mosaic/` 整个丢失 —— 回退到 loose file。
-2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在 buildozer 前把
-   `v1.pyx` 交叉编译为 `v1.cpython-314-aarch64-linux-android.so`
-   （Cython 3.x + NDK `aarch64-linux-android26-clang` + target Python 3.14 头），
-   直接落在源码树；`buildozer.spec` `source.include_exts` 加 `so`；p4a 当
-   loose file 打进 APK。
+2. **v6 实际路径**：`scripts/wsl_build_v1_cython.sh` 在目标 dist 就绪后把
+   `v1.pyx` 交叉编译为裸名 `v1.so`（Cython 3.x + NDK `aarch64-linux-android26-clang` +
+   target Python 3.14 头），直接落在源码树；`buildozer.spec` 显式包含该路径，p4a 当
+   loose file 打进 APK。冷缓存时主构建脚本会先 bootstrap dist、重新链接并验证扩展，再打最终包。
 3. **`_probe_v1_cython` v6 装机 PASS**：`Cython 模块加载 OK;
-   lift_forward/lift_inverse 复原一致`。
+   neighborhood_swap forward/inverse 复原一致`。
 4. **numpy patch 已持久化**：`scripts/p4a_local_recipes/numpy/` 覆盖 p4a
    内置 recipe，加 `patches = ["patches/numpy_unordered_map_include.patch"]`；
    清 `.buildozer/` 后自动应用，无需人工。
@@ -176,7 +175,7 @@
 
 | 子项 | 结果 |
 |---|---|
-| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; lift_forward/lift_inverse 复原一致`** |
+| 5. **Cython v1_optimized** | ✅ **`Cython 模块加载 OK; neighborhood_swap forward/inverse 复原一致`** |
 | 其他 4 项 | ✅ 无回归（pyjnius / numpy / pillow / V1 参考实现全部保持 PASS） |
 | 6. 256×256 性能扫描（还是参考实现） | 20 轮 median 25.6 s，20 轮 p95 25.6 s（v5 是 37.6 s / 49.1 s，抖动而已） |
 
@@ -271,7 +270,7 @@
    视觉验收显示 10 轮档在 5 张内容丰富图上仍能勉强辨认轮廓，加大主档/最高档
    预算 +50% 后 15 轮 16/20 通过、30 轮 20/20 完美通过。
 
-### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶�� 1 并行）
+### 阶段 2a – PC 侧 UI 打通（2026-07-28，与阶段 1 并行）
 
 **已完成（自动）**：
 1. **四个真实屏**：`EncodeScreen` / `DecodeScreen` / `ProgressScreen` /
@@ -546,20 +545,202 @@ byte-identical，属于 §12.3.5 "低信息图片仅验收可逆性" 范围；Hy
 1. **【联合】生成 keystore**：用户在 PowerShell 里跑
    `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/generate_release_keystore.sh`，
    交互式输入签名主体 DN + 口令；完成后备份 `<项目>/keys/reversiblemosaic.jks`
-   到离线位置。
+   到离线位置。✅ 已完成（2026-07-31，`CN=Apeiria-network, C=CN`）。
 2. **【联合】Release 构建**：keystore 就位后，用户跑
-   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release`，
+   `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v18`，
    产出 signed Release APK。首次冷启动预计 25-30 分钟，增量 3-5 分钟。
+   ✅ v17 已完成（`bin/reversiblemosaic-0.1.0-arm64-v8a-release-v17.apk`，
+   SHA-256 `546dc561005b2a02745d6ec10bdfdcc4cd46a33cd4c26f435e208a49919b0394`；
+   v18 之后由重写后的脚本自动加版本后缀 + apksigner 封装）。
 3. **【联合】签名 fingerprint 验证**：`keytool -printcert -jarfile <apk>`，
    记录 SHA-256 到 `docs/release-notes.md` § 5 表格。
+   ✅ 已完成（证书 SHA-256 `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7`）。
 4. **【联合】APK 装机 + AC-PERF 基准**：真机装 signed Release APK，
    进阶段 0 自检 → "Stage 3 AC-PERF 基准"按钮跑一次，`adb pull` 取
    `stage3_bench.json` 回主机，附到 `docs/probe-report.md`。
+   ⏳ **v17 debug 已采集**（详见下文子节）；signed Release APK 复采待 F3~F6 开闸后进行。
 5. **【联合】飞行模式 + 深浅色 + 大字体 walk-through**：真机开飞行模式跑完
    选图 → 打码 → 保存 → 恢复；再切系统深/浅色 + 大字体 各走一遍；截图或
-   录屏反馈异常。
+   录屏反馈异常。**暂停中（用户 C2 门槛）**，待 stage3-block3-problems.md
+   B1/C1/C3/D3/D1/E2 全部收口后再开。
 
-Block 3 收官条件：signed Release APK v17 SHA-256 记录 + AC-PERF 真机中位数
-达标 + 飞行模式主链路通过。
+##### v17 debug 真机测试完成情况（2026-07-31，小米 K80 Pro）
 
+- **验收设备**：小米 K80 Pro / Android 16 / RAM 16 GB (物理) + 6 GB (扩展)
+- **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-debug-v17.apk`（debug 签名；
+  APK 已丢失，SHA-256 未记录 —— 详见 [stage3-block3-problems.md § D1](stage3-block3-problems.md)）
+- **测试口径**：1920×1080 RGB 现算图 × `{2, 5, 15, 30}` × 5 次 encrypt-only；
+  Cython nogil 后端（`registry V1 backend = cython`）
+- **AC-PERF 判定**：
 
+  | rounds | median | P95 | peak_rss | 目标 | verdict |
+  |---:|---:|---:|---:|---:|:---|
+  |  2 | 0.103 s | 0.105 s | 269.3 MiB |  6 s | ✅ PASS (~58×) |
+  |  5 | 0.256 s | 0.256 s | 269.6 MiB |  9 s | ✅ PASS (~35×) |
+  | 15 | 0.767 s | 0.767 s | 270.0 MiB | 27 s | ✅ PASS (~35×) |
+  | 30 | 1.533 s | 1.536 s | 270.5 MiB | 52 s | ✅ PASS (~34×) |
+
+  总扫描 12.9 s；每档 ≥ 34× 余量通过 §10.2 目标。30 轮实测 1.533 s 与 v7
+  阶段外推 "~1.53 s" 几乎完全吻合（详见
+  [`docs/probe-report.md`](docs/probe-report.md) § 阶段 3 v17 debug 真机基准）。
+- **数据来源**：真机 App 私有目录 `stage0_perf.json`（v17 APK 打包早于
+  `self_test.py` 的 `stage3_bench.json` 重命名，v18+ 会自动用新文件名）。
+  JSON 原文用户丢失，数据以 App 内自检屏截图为准。
+- **同步更新文档**：
+  - [docs/probe-report.md](docs/probe-report.md) 追加"阶段 3 v17 debug 真机基准"章节；
+    原 v7 章节头部加历史标注（老口径 `{1,5,10,20}` 仅作参考）。
+  - [docs/test-plan.md](docs/test-plan.md) AC-PERF 条目：老口径 v7 数据替换为
+    v17 新口径 + PASS 判定；性能验收设备 = K80 Pro 记入 § 1 环境快照。
+- **未决事项**：
+  - v17 debug APK SHA-256 未记录（APK 丢失，用户明规不追补）
+  - signed Release APK 的 AC-PERF 复采待 C2 门槛开闸后进行（预计与 debug 差异 5-15%）
+
+##### v18 打包端到端验证（2026-07-31）
+
+`wsl_build_android.sh` 重写为 `<mode> <version>` 双参强制 + apksigner 封装
+（B1/C1/C3/D3 落地）之后，跑一次真实 v18 debug + release 打包验证脚本
+端到端通路：
+
+| 版本 | SHA-256 | 大小 | 签名主体 |
+|---|---|---:|---|
+| v18 debug | `afe99948f82017608862cf6c74c6c92f5d88e098120a339c9b703e40b8d20059` | 33.13 MiB | Android debug |
+| v18 signed Release | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | 33.13 MiB | `CN=Apeiria-network, C=CN` |
+
+- 证书 SHA-256 fingerprint `54c1bbbf...` 与 v17 逐位一致（同 keystore）。
+- WSL + D 盘两处 SHA 各自匹配 —— `cp -a` 保真。
+- apksigner verify 报告 v2 + v3 scheme 都 true；v1 false（因 minapi=26，apksigner 自动跳）。
+- 打包脚本每条支路都跑过：参数校验、rsync exclude spec.local、Cython 交叉编译、
+  buildozer 出 unsigned、apksigner heredoc stdin 传口令、verify + keytool 摘要、
+  目标文件已存在 exit 4（release v18 首跑时触发过一次防误覆盖）、`cp -a` 到 D 盘 + sha256sum。
+
+**过程中遇到 CRLF 事故**：分支切换到 `stage3-real-test` 时 git `core.autocrlf=true`
+把所有 `.sh` 从 LF 转 CRLF，bash 读到 `set -euo pipefail\r` 时报
+`invalid option name`。**已修**：`sed -i 's/\r$//' scripts/*.sh` 剥掉 CR，
+新增根级 `.gitattributes` 永久锁定 `.sh`/`.py`/`.pyx`/`buildozer.spec` 等
+Unix 工具消费的文件走 LF；`.png`/`.jks`/`.apk` 显式标 binary。
+详见 [stage3-block3-problems.md § 4.7](stage3-block3-problems.md) 事故复盘。
+
+**下一步**：v18 signed Release 已就位，具备真机测试条件（F3~F6 开闸后走）。
+
+##### v18 signed Release 真机验收（2026-07-31，K80 Pro）
+
+C2 门槛开闸后跑完 F3 + F4 + F5（F6 因 release APK 不 debuggable 跳过，
+预期安全边界），Stage 3 Block 3 真机测试部分收官：
+
+- **F5 Manifest 权限（AC-016 自动部分）** ✅ PASS
+  - `aapt dump permissions` 输出：仅 `WRITE_EXTERNAL_STORAGE` +
+    `READ_EXTERNAL_STORAGE`（自动派生），两个都 `maxSdkVersion=28`
+  - 无 `INTERNET` / `ACCESS_NETWORK_STATE` / `CAMERA` / `LOCATION` / `READ_MEDIA_*`
+  - sdkVersion=26 / targetSdkVersion=34 / native-code=arm64-v8a /
+    package=io.placeholder.reversiblemosaic
+
+- **F3 AC-PERF signed Release 复采（AC-PERF）** ✅ PASS，每档余量 ≥ 68×
+
+  | rounds | median | P95 | peak_rss | target | verdict |
+  |---:|---:|---:|---:|---:|:---:|
+  |  2 | 0.051 s | 0.056 s | 484.8 MiB |  6 s | ✅ PASS (~118×) |
+  |  5 | 0.127 s | 0.133 s | 484.8 MiB |  9 s | ✅ PASS (~71×) |
+  | 15 | 0.341 s | 0.381 s | 484.8 MiB | 27 s | ✅ PASS (~79×) |
+  | 30 | 0.762 s | 0.766 s | 484.8 MiB | 52 s | ✅ PASS (~68×) |
+
+  总扫描 8.6 s，backend = cython。同机 v17 debug 对比 median 反而快 50% —— 归因于
+  手机充电锁高频 + 前置探针累计 RSS 起点更高，不是代码差异（两版共用同一份 Cython `.so`）。
+
+- **F4 飞行模式 + 主链路 + UI 兼容（AC-016 人工 + AC-001 + AC-003 + AC-012 人工）** ✅ PASS
+  - 飞行模式开着跑通 PNG + JPEG 两条解码路径
+  - 随机分享代码路径 + encode + decode round-trip 均正常
+  - 保存到相册 → Pictures/ReversibleMosaic 系统相册可见
+  - 深色 / 浅色 / 大字体三种系统设置下 UI 主链路均正常
+
+- **F6 stage3_bench.json adb pull** — SKIPPED（预期安全边界）
+  - release APK 无 `debuggable=true`，`adb shell run-as` 被 Android 沙盒拒绝
+  - AC-PERF 数据以 App 内自检屏截图为准，JSON 归档非必要
+  - 未来若需归档，可考虑：a) 打一版 debuggable 的 v19 专供数据取样、b) 让 App
+    额外把 JSON 写到 `Pictures/ReversibleMosaic/`（scoped storage 用户可见）
+
+**AC 状态更新**：AC-001 / AC-003（人工部分）/ AC-012（人工部分）/ AC-016（自动+人工）/
+AC-PERF 全部转 ✅。AC 全表状态见 [docs/test-plan.md](docs/test-plan.md) § 2 逐条追踪。
+
+Block 3 收官条件：**已达成**
+- ✅ v18 signed Release APK SHA-256 `c5ba1ba7...` 记录到 [docs/release-notes.md § 5](docs/release-notes.md)
+- ✅ AC-PERF 真机中位数 K80 Pro 上 v18 signed Release 每档 ≥ 68× 余量 PASS
+- ✅ 飞行模式主链路 PNG + JPEG + 保存 + 恢复通过
+
+##### Stage 3 Block 4 验收表核对与隐私诊断收口（2026-08-03）
+
+1. **AC-011 失败诊断修正**：`reversible_mosaic/ui/file_picker.py` 不再把 Android
+   picker/provider traceback 写入 `picker_error.log`，也不输出 URI、路径或 provider
+   异常文本；`reversible_mosaic/app.py::_on_failed` 仅输出异常类型，并向 UI 显示固定的
+   可重试提示。保留 Android picker → Kivy chooser fallback，不引入新的日志系统。
+2. **回归覆盖**：扩展 `tests/unit/test_android_native.py`，注入唯一 content URI、本地路径和
+   分享代码，断言 picker/pipeline 失败诊断不会回显或持久化敏感值；另断言 share gateway
+   只收到固定 subject。`tests/unit/test_pipeline.py` 既有用例明确覆盖去除元数据后的逐像素
+   恢复和输出文件名不含规范化分享代码。
+3. **验收文档**：`docs/test-plan.md` 升级为 Stage 3 测试报告，校正 AC-008 精确用例引用，
+   记录 AC-011 行为级证据，保留 v18 signed Release 的历史真机证据与 AC-015 内部 MVP
+   单人例外；AC-017 继续要求交付时实际核对 APK、许可证材料、交付目录及签署清单。
+   `docs/source-index.md` 同步 picker 安全诊断和相关回归测试用途。
+4. **验证结果**：
+   - `python -m pytest tests/unit/test_android_native.py tests/unit/test_pipeline.py`：**18 passed**。
+   - `python -m pytest`：**253 passed / 21 skipped**（2026-08-03）；21 项均为 Windows
+     未构建 Cython V1 后端的既有 skip。
+   - `python -m ruff check .`：**9 diagnostics**，均位于 `main.py`、
+     `scripts/enumerate_recipes.py`、`scripts/p4a_local_recipes/numpy/__init__.py` 与
+     `scripts/prototype_r4_neighborhood_swap.py` 的既有基线文件；Block 4 修改文件无新增项。
+   - `python -m mypy reversible_mosaic tests`：**23 diagnostics**，与历史基线一致；
+     Block 4 新增的 `test_android_native.py` 诊断已消除，剩余输出仅位于既有
+     `test_exif_orientation.py`、`test_normalize.py`、`test_task_coordinator.py` 和
+     `test_v1_vectors.py` 基线文件。
+
+**Block 4 仍属人工/交付责任的事项**：不得由文档历史记录替代实际留存核验；AC-017 清单、
+第三方许可证包、交付 APK 和公开/商业发布所需的三名独立视觉检查者仍待实际执行。
+
+##### Stage 3 Block 4 交付准备（2026-08-04）
+
+**已完成（自动/文档）**：
+
+1. 新增 [`THIRD_PARTY_LICENSES/`](THIRD_PARTY_LICENSES/) 交付级许可证与通知包：
+   `README.md` 将 APK 运行时组件映射到版本/recipe 和许可原文；WenQuanYi 字体仍以 APK
+   内 `reversible_mosaic/assets/fonts/LICENSE.txt` 为权威副本，不重复维护。
+2. [`docs/build-android.md`](docs/build-android.md) §7 重写为可核验交付清单：每项需求
+   §16 交付物都对应仓库路径或明确的外部签名 APK，并引用合成/视觉图集的来源、许可和
+   SHA-256 manifest 与 `artifacts/visual_review_sources/sources.csv`。
+3. [`docs/test-plan.md`](docs/test-plan.md) 的 AC-017 增加逐项复选和验收人/日期/APK hash
+   签署栏；状态保持 **⏱ 待人工**，历史真机证据不替代最终交付目录的实物留存核验。
+4. [`docs/release-notes.md`](docs/release-notes.md) 与 [`docs/source-index.md`](docs/source-index.md)
+   已同步许可证包、APK 内字体许可、视觉/合成图集 manifest 的维护与验收用途。
+5. **本轮验证**：`python -m pytest -q` 为 **253 passed / 21 skipped**；
+   `python scripts/hash_visual_review_sources.py --check` 确认 20 张视觉源图与
+   `sources.csv` 的来源、许可、SHA-256 清单一致。`ruff check .` 的 9 项与
+   `mypy reversible_mosaic tests` 的 23 项均为既有基线诊断，未由本轮文档/许可证
+   交付准备引入。
+
+**仍需人工完成**：交付负责人实际留存并检查最终签名 Release APK、执行签名/hash 对照，
+完成 AC-017 签署；公开或商业发布前仍需按需求 §12.3 组织至少三名独立检查者重跑视觉验收。
+
+##### Stage 3 后续：WSL C 盘按需手动清理（2026-08-05）
+
+用户选择**不迁移整个 WSL Ubuntu**，改为在不需要 Android 编译时手动删除可重建的 WSL
+缓存与同步副本，减少 C 盘占用；不引入自动清理脚本。根目录本机文件
+`LOCAL_WSL_CLEANUP.md`（`.gitignore` 排除，禁止提交/推送）记录绝对路径、实测大小、
+删除影响、手动命令与恢复步骤。
+
+- 可直接手动清理：`/home/hydrogen/src/ReversibleMosaic/.buildozer`（约 4.0 GiB）、
+  `/home/hydrogen/.buildozer`（约 2.7 GiB）、`/home/hydrogen/src/ReversibleMosaic/bin`
+  （约 128 MiB）以及 `/var/cache/apt`（约 423 MiB）；合计约 7.2 GiB。
+- `/home/hydrogen/src/ReversibleMosaic/artifacts`（约 3.4 GiB）是 D 盘权威
+  `artifacts/` 的 WSL 同步副本，仅在清单给出的逐文件 SHA-256 核对通过后才允许用户手动删除。
+- 删除 `.buildozer` 会使下一次 Android 构建成为冷构建。`scripts/wsl_build_android.sh` 会在
+  sdkmanager 已存在时补齐 Android 34、Platform-Tools 与 Build-Tools 36.0.0，并删除缺少
+  `aidl` 的不完整 Build-Tools 目录；若 SDK 尚未初始化，则先让 Buildozer bootstrap，失败后
+  自动补齐并重试一次。NDK r25b 仍由 Buildozer/既有基线恢复或按 `docs/build-android.md` §3.1
+  手动准备；D 盘源码、验收材料、APK、keystore 与 `buildozer.spec.local` 均不属于清理范围。
+- **Cython 缺失修复验证（2026-08-05）**：`release v19` 的真机探针暴露冷缓存构建只生成
+  `v1.c`、未在目标 Python headers 出现后重新链接 `v1.so` 的缺口。现有单入口改为
+  cold bootstrap → Cython arm64 `v1.so` 链接与 ELF 校验 → 最终打包；`debug v20` 已静态
+  验证 APK 内含该裸名模块（165,712 B，AArch64 ELF），WSL/D 盘 APK SHA-256 均为
+  `9f56c720eb8b2099c141e122bb090072c256d8324b34afab7dd1d87f2a766ba7`。用户已在真机手动
+  确认 Cython 探针符合预期；仍待用户自行运行并留存 v20 的 AC-PERF `stage3_bench.json`，
+  才能把 v20 作为新的性能验收证据。
+- 该方案不会重建 C 盘 `ext4.vhdx`，所以历史已删除字节残留问题仍未解决；若未来需要回收
+  Windows 可见 VHDX 文件大小或处理该残留，须另行确认 WSL VHDX 压缩或导出重建方案。
