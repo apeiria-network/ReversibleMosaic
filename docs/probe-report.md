@@ -275,3 +275,36 @@ MVP 内部发布使用的 K80 Pro 上，**v18 signed Release APK 在 §10.2 全�
 > 兼容 headroom，但需要实测确认。
 
 ---
+
+## 阶段 3 v20 signed Release 真机基准 (2026-08-05)
+
+- **APK**：`bin/reversiblemosaic-0.1.0-arm64-v8a-release-v20.apk`
+- **SHA-256**：`6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0`
+- **大小**：31.62 MiB（33,151,984 B）
+- **签名**：v2 + v3 schemes，`CN=Apeiria-network, C=CN`；证书 SHA-256 fingerprint
+  `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7`
+- **测试设备**：小米 K80 Pro / Android 16 / RAM 16 GB（物理）+ 6 GB（扩展）
+- **测试日期**：2026-08-05
+- **数据源**：App 内“Stage 3 AC-PERF 基准”结果截图；Release APK 不可通过 `run-as` 导出
+  私有 `stage3_bench.json`，截图记录了完整逐档结果。
+- **实现**：`registry V1 backend = cython`
+- **总耗时**：9.5 s
+
+### 性能扫描（1920×1080 RGB，5 次中位数，encrypt-only 计时）
+
+| rounds | median | P95 | peak_rss | AC-PERF 目标 | 余量 | 判定 |
+|---:|---:|---:|---:|---:|---:|:---:|
+|  2 | 0.051 s | 0.058 s | 284.4 MiB | 6.0 s  | **~118×** | ✅ PASS |
+|  5 | 0.132 s | 0.132 s | 284.4 MiB | 9.0 s  | **~68×**  | ✅ PASS |
+| 15 | 0.388 s | 0.388 s | 284.4 MiB | 27.0 s | **~70×**  | ✅ PASS |
+| 30 | 0.773 s | 0.781 s | 284.4 MiB | 52.0 s | **~67×**  | ✅ PASS |
+
+**AC-PERF 总判定：PASS**。四档均通过；最低余量约 67×。峰值 RSS 284.4 MiB，远低于
+§10.1 的设备可用内存 60% 上限。
+
+### 飞行模式主链路复核
+
+用户在飞行模式下完成 PNG/JPEG 两种输入的打码 → 保存 → 查看/分享 → 恢复主链路，结果通过。
+该结果同时构成 AC-003 人工部分、AC-012 人工部分和 AC-016 人工部分的 v20 基线证据。
+
+---

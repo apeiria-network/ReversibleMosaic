@@ -6,8 +6,8 @@ values are only moved, never modified, so the colour palette is preserved
 identically between input and encrypted output.
 
 This module preserves the lift + diffuse primitives from the pre-freeze V1
-draft as a reference implementation for a **future P1 "enhanced privacy mode"**
-(see ``requirements_product_v1.md`` §3.3). If that mode ships, callers would:
+draft as a reference implementation for a **future P1 "enhanced privacy mode"**.
+If that mode ships, callers would:
 
 1. Apply :func:`lift_forward` after :func:`neighborhood_swap_forward`
 2. Apply :func:`diffuse_forward` for cross-pixel colour spreading

@@ -1,6 +1,8 @@
 # ReversibleMosaic
 
-Android 本地单图可逆视觉混淆工具。项目以 [需求规格](requirements_product_v1.md) 和 [开发计划](development_plan.md) 为准。
+Android 本地单图可逆视觉混淆工具。算法、构建、测试与发行信息分别见
+[算法规范](docs/algorithm-v1.md)、[Android 构建](docs/build-android.md)、
+[测试计划](docs/test-plan.md)和[发行说明](docs/release-notes.md)。
 
 > 本产品提供可逆视觉混淆，不是密码学加密。分享代码不提供机密性、真实性或抗穷举保证。
 

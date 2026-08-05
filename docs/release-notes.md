@@ -4,7 +4,7 @@
 > **发布类型**：**内部签名 Release**（不面向公开渠道，applicationId 尚未定型）
 > **发布日期**：Stage 3 Block 3 结束时补上
 > **发布主体**：暂无（内部自签 keystore）
-> **对应需求档**：[`requirements_product_v1.md`](../requirements_product_v1.md) V2.0（2026-07-24）
+> **发布范围**：内部 MVP
 > **对应算法冻结**：V1（[`docs/algorithm-v1.md`](algorithm-v1.md) 状态 FROZEN，2026-07-30）
 
 ---
@@ -56,28 +56,26 @@
 
 ### 性能
 
-- 1920×1080 RGB 图片、Cython 加速内循环，v18 signed Release 在小米 K80 Pro /
-  Android 16 / RAM 16+6 GB 上真机中位数（2026-07-31 采集）：
-  - 2 轮 0.051 s / 5 轮 0.127 s / 15 轮 0.341 s / 30 轮 0.762 s
-  - AC-PERF 目标 6 / 9 / 27 / 52 s，每档余量 ≥ 68×
-  - 峰值 RSS 485 MiB（远低于 §10.1 60% 内存上限）
+- 1920×1080 RGB 图片、Cython 加速内循环，v20 signed Release 在小米 K80 Pro /
+  Android 16 / RAM 16+6 GB 上真机中位数（2026-08-05 采集）：
+  - 2 轮 0.051 s / 5 轮 0.132 s / 15 轮 0.388 s / 30 轮 0.773 s
+  - AC-PERF 目标 6 / 9 / 27 / 52 s，每档余量 ≥ 67×
+  - 峰值 RSS 284.4 MiB（远低于 §10.1 60% 内存上限）
 - V1 Cython `.so` 交叉编译进 APK；PC 侧走 Python 参考实现兜底。
-- 详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v18 signed Release 真机基准。
+- 详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v20 signed Release 真机基准。
 
-### MVP 真机验收（2026-07-31）
+### MVP 真机验收（2026-08-05）
 
-v18 signed Release APK 在小米 K80 Pro / Android 16 上完成 Stage 3 Block 3 定义
-的 F3+F4+F5 三项真机测试：
+v20 signed Release APK 在小米 K80 Pro / Android 16 上完成交付基线的真机复核：
 
-- **F3 AC-PERF 复采** ✅ 4 档全 PASS，最低余量 68×（30 轮 0.762 s vs 52 s 目标）
-- **F4 飞行模式 + 主链路** ✅ PNG + JPEG + 随机分享代码 + encode + decode +
-  保存到相册可见 + 深/浅色 + 大字体全部走通
-- **F5 Manifest 权限验证** ✅ aapt dump 确认仅 `WRITE_EXTERNAL_STORAGE` +
-  自动派生的 `READ_EXTERNAL_STORAGE`（都 maxSdkVersion=28），无 INTERNET /
-  ACCESS_NETWORK_STATE / CAMERA / LOCATION / READ_MEDIA_*
+- **AC-PERF 复采** ✅ 4 档全 PASS，最低余量约 67×（30 轮 0.773 s vs 52 s 目标）
+- **飞行模式 + 主链路** ✅ PNG + JPEG 的打码、保存、查看/分享与恢复全部走通
+- **Cython 后端** ✅ 自检屏确认 `registry V1 backend = cython`
+- **Manifest 权限验证** ✅ `aapt dump` 确认仅 `WRITE_EXTERNAL_STORAGE`
+  （`maxSdkVersion=28`），无 INTERNET / ACCESS_NETWORK_STATE / CAMERA / LOCATION /
+  READ_MEDIA_*
 
-对应 AC 条目 ✅ 状态：AC-001 / AC-003 / AC-012 / AC-016 / AC-PERF —— 见
-[`docs/test-plan.md`](test-plan.md) § 2 逐条追踪。
+对应 AC 条目状态见 [`docs/test-plan.md`](test-plan.md) § 2 逐条追踪。
 
 ### 隐私
 
@@ -141,6 +139,7 @@ v18 signed Release APK 在小米 K80 Pro / Android 16 上完成 Stage 3 Block 3 
 | **v18 signed Release** | 31.60 MiB (33,135,600 B) | `c5ba1ba782cc3f45ef21820cf505a62b28e31993a687b31a4cd597aeb0e8dd53` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 | **v19 signed Release（冷缓存恢复验证，Cython 缺失）** | 31.55 MiB (33,090,544 B) | `2f320d04c759588ea2b91fe336721237b5272cbafb7860ee818e1d92a179f1c1` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 | **v20 debug（Cython 打包修复验证）** | 32.65 MiB (34,234,772 B) | `9f56c720eb8b2099c141e122bb090072c256d8324b34afab7dd1d87f2a766ba7` | debug keystore (v1+v2) | Android debug | — |
+| **v20 signed Release（当前交付/验收基线）** | 31.62 MiB (33,151,984 B) | `6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 
 **v19 冷缓存恢复验证（2026-08-05）**：用户手动删除项目及全局 Buildozer 缓存后，以
 `wsl_build_android.sh release v19` 成功完成 SDK bootstrap、APK 打包和 D 盘签名。脚本输出的
@@ -152,8 +151,12 @@ WSL 与 D 盘文件 SHA-256 相同；随后对 D 盘 APK 独立执行 `apksigner
 **v20 Cython 打包修复验证（2026-08-05）**：单入口脚本先链接并校验裸名 AArch64
 `v1.so`，再完成 APK 打包；APK 内容检查确认 `assets/private.tar` 包含
 `reversible_mosaic/core/algorithm/v1.so`（165,712 B）。用户在真机手动确认“V1 Cython 优化”
-探针符合预期。v20 为 debug 诊断 APK；尚未留存 v20 的 AC-PERF JSON，不能替代最终签名
-Release 交付或 AC-017 核验。
+探针符合预期。**用户已确认 v20 是后续交付与验收基线**：现有 debug v20 证明修复后的
+模块打包与装载链路；同一源码/构建路径的 **signed Release v20** 已于 2026-08-05 构建。
+本机复核结果：APK SHA-256 为 `6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0`，
+`apksigner verify` 通过 v2/v3，证书 SHA-256 为 `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7`，
+且 `assets/private.tar` 内含 AArch64 `reversible_mosaic/core/algorithm/v1.so`（165,712 B）。
+仍须在该 Release APK 上完成真机 AC-PERF 与主链路复核，随后才能进行 AC-017 最终核验。
 **v17 → v18 差异**：v18 是 v17 之后针对 Stage 3 Block 3 问题清单的收官版
 （B1 隔离 + C1/C3/D3 apksigner 封装 + `.gitattributes` LF 归一化）。**代码
 运行时逻辑无实质差异**（V1 冻结、Cython 内层、UI 主链路、Android gateway
