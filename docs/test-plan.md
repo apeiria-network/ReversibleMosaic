@@ -75,10 +75,11 @@
 - **要求**：产品验收人逐项检查 FR-HOME 与流程要求。
 - **人工**：用户走完打码 → 保存 → 分享 → 恢复 → 教程 → 未保存离开二次确认
   全流程。
-- **证据**：v15 debug APK 用户已在 Stage 2b 走通主链路；
-  未保存离开二次确认见 [`reversible_mosaic/ui/screens.py::ResultScreen._on_back`](../reversible_mosaic/ui/screens.py)。
-- **状态**：⏱ v17 出后由用户回测 FR-HOME-003 首启一次性技术边界弹窗替代方案
-  （MVP 用首页"教程与安全边界"入口，P1 补首启 dialog）。
+- **证据**：产品验收人于 2026-08-05 在 v20 signed Release 真机走查首页、打码、恢复、
+  教程、提示和未保存离开确认，结论通过；未保存离开二次确认实现见
+  [`reversible_mosaic/ui/screens.py::ResultScreen._on_back`](../reversible_mosaic/ui/screens.py)。
+- **状态**：✅ 通过。MVP 采用首页“教程与安全边界”入口说明技术边界；首启独立 dialog 作为
+  后续增强项，不构成当前内部 MVP 的阻断条件。
 
 ### AC-003 —— 联合：格式支持 + 单图限制
 
@@ -115,10 +116,11 @@
 
 ### AC-007 —— 人工：恢复页版本切换 + 元数据自动带入不锁定
 
-- **证据**：[`reversible_mosaic/ui/screens.py::DecodeScreen`](../reversible_mosaic/ui/screens.py)
-  始终显示算法版本 Spinner；元数据带入见 [`ui/input_hint.py::inspect_input`](../reversible_mosaic/ui/input_hint.py)
-  返回 `suggested_algorithm_version` / `suggested_rounds`。
-- **状态**：⏱ 待真机走查（Block 3）。
+- **证据**：产品验收人于 2026-08-05 在 v20 signed Release 真机确认恢复页始终显示
+  算法版本下拉框；有效元数据可自动带入版本与轮数，控件仍可手动切换。实现位置：
+  [`reversible_mosaic/ui/screens.py::DecodeScreen`](../reversible_mosaic/ui/screens.py) 与
+  [`ui/input_hint.py::inspect_input`](../reversible_mosaic/ui/input_hint.py)。
+- **状态**：✅ 通过。
 
 ### AC-008 —— 自动：删除元数据后仍能逐像素恢复
 
@@ -129,8 +131,10 @@
 
 ### AC-009 —— 人工：可选择参数执行恢复 + 可修改参数重试
 
-- **证据**：[`ui/screens.py::ResultScreen`](../reversible_mosaic/ui/screens.py) 提供"返回修改参数"路径。
-- **状态**：⏱ 待真机走查（Block 3）。
+- **证据**：产品验收人于 2026-08-05 在 v20 signed Release 真机选择版本、轮数和
+  分享代码执行恢复，并修改参数后重新处理；实现提供“返回修改参数”路径：
+  [`ui/screens.py::ResultScreen`](../reversible_mosaic/ui/screens.py)。
+- **状态**：✅ 通过。
 
 ### AC-010 —— 自动：PNG 元数据 schema + 大小限制 + 异常处理 + encrypted/restored 区分
 
@@ -167,8 +171,10 @@
 - **自动**：[`tests/unit/test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) 12 case，Block 1
   扩展覆盖 cancel→reset→re-start、fail→reset→re-start、并发双 start 只一次
   通过、reset 在 mid-flight 状态被拒等。
-- **人工**：真机点击取消按钮 + 切后台 + 重复点击开始按钮。
-- **状态**：⏱ 待 Block 3 真机验收；自动 ✅。
+- **人工**：真机取消、切后台与重复启动场景的全量复核在当前内部 MVP 中成本较高，
+  经产品验收人决定跳过；不以此豁免替代自动覆盖。
+- **状态**：— 内部 MVP 豁免。自动 ✅；公开或商业发布、任务调度逻辑改动，或新增后台继续处理
+  能力前，必须在真机补做取消、重复启动、切后台和失败后重试的人工验收。
 
 ### AC-014 —— 自动：资源边界 + 恶意样本 → 安全失败
 
