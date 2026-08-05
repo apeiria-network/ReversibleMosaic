@@ -4,7 +4,7 @@
 #   * bash: `set -euo pipefail\r` → "invalid option name"
 #   * shebang lookup: `#!/usr/bin/env bash\r` → "no such file" errno
 #   * .pyx: Cython 3.x parser rejects CR in source
-# See stage3-block3-problems.md § v18 打包中断事故 (2026-07-31) for the incident.
+# This policy prevents CRLF checkout failures in Bash, shebangs, and Cython.
 
 # Shell scripts
 *.sh                text eol=lf

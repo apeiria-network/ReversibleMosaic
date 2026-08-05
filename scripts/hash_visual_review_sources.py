@@ -137,9 +137,9 @@ def main() -> int:
             return 1
         return 0
 
-    # Write back as UTF-8 comma-separated (portable; Excel zh-CN reads it fine when
-    # opened via Data > Import Text; and pandas / csv.reader handles it directly).
-    with csv_path.open("w", encoding="utf-8", newline="") as target:
+    # Write UTF-8 with BOM so Windows spreadsheet applications recognize Chinese text
+    # when sources.csv is opened directly; readers should use utf-8-sig.
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as target:
         writer = csv.DictWriter(target, fieldnames=fieldnames, delimiter=",")
         writer.writeheader()
         for row in enriched_rows:
