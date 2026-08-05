@@ -170,7 +170,13 @@ def write_png(path: str | Path, pixels: PixelArray, metadata: MosaicMetadata) ->
     info = PngImagePlugin.PngInfo()
     info.add_text(METADATA_KEYWORD.decode("ascii"), serialize_metadata(metadata), zip=False)
     destination = Path(path)
-    Image.fromarray(pixels, mode=mode).save(destination, format="PNG", pnginfo=info)
+    Image.fromarray(pixels, mode=mode).save(
+        destination,
+        format="PNG",
+        pnginfo=info,
+        optimize=True,
+        compress_level=9,
+    )
     probe = scan_png(destination)
     if (probe.width, probe.height, probe.mode) != (pixels.shape[1], pixels.shape[0], mode):
         destination.unlink(missing_ok=True)

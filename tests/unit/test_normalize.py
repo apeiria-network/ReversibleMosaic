@@ -3,10 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 from reversible_mosaic.io.normalize import normalize_image, write_png
-from reversible_mosaic.io.png_metadata import MosaicMetadata, parse_png_metadata
+from reversible_mosaic.io.png_metadata import (
+    METADATA_KEYWORD,
+    MosaicMetadata,
+    parse_png_metadata,
+    serialize_metadata,
+)
 from reversible_mosaic.io.probe import scan_png
 
 
@@ -14,6 +19,38 @@ def metadata(mode: str, width: int, height: int) -> MosaicMetadata:
     return MosaicMetadata(  # type: ignore[arg-type]
         1, "reversible_mosaic", "encrypted", 1, 5, mode, width, height
     )
+
+
+def test_rgb_png_round_trip_uses_lossless_optimized_encoding(tmp_path: Path) -> None:
+    pixels = np.zeros((32, 32, 3), dtype=np.uint8)
+    pixels[8:24, 8:24] = (11, 22, 33)
+    path = tmp_path / "output.png"
+    write_png(path, pixels, metadata("RGB", 32, 32))
+    normalized = normalize_image(path)
+    np.testing.assert_array_equal(normalized.pixels, pixels)
+    probe = scan_png(path)
+    parsed = parse_png_metadata(list(probe.chunks), actual_mode="RGB", actual_size=(32, 32))
+    assert parsed.metadata == metadata("RGB", 32, 32)
+
+
+def test_optimized_png_is_not_larger_than_pillow_default(tmp_path: Path) -> None:
+    pixels = np.zeros((128, 128, 3), dtype=np.uint8)
+    pixels[32:96, 32:96] = (11, 22, 33)
+    optimized_path = tmp_path / "optimized.png"
+    default_path = tmp_path / "default.png"
+    write_png(optimized_path, pixels, metadata("RGB", 128, 128))
+    default_info = PngImagePlugin.PngInfo()
+    default_info.add_text(
+        METADATA_KEYWORD.decode("ascii"),
+        serialize_metadata(metadata("RGB", 128, 128)),
+        zip=False,
+    )
+    Image.fromarray(pixels, mode="RGB").save(
+        default_path,
+        format="PNG",
+        pnginfo=default_info,
+    )
+    assert optimized_path.stat().st_size <= default_path.stat().st_size
 
 
 def test_rgba_hidden_rgb_png_round_trip(tmp_path: Path) -> None:
