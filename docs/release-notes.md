@@ -140,6 +140,7 @@ v20 signed Release APK 在小米 K80 Pro / Android 16 上完成交付基线的�
 | **v19 signed Release（冷缓存恢复验证，Cython 缺失）** | 31.55 MiB (33,090,544 B) | `2f320d04c759588ea2b91fe336721237b5272cbafb7860ee818e1d92a179f1c1` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 | **v20 debug（Cython 打包修复验证）** | 32.65 MiB (34,234,772 B) | `9f56c720eb8b2099c141e122bb090072c256d8324b34afab7dd1d87f2a766ba7` | debug keystore (v1+v2) | Android debug | — |
 | **v20 signed Release（当前交付/验收基线）** | 31.62 MiB (33,151,984 B) | `6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
+| **v21 signed Release（PNG 编码优化，待真机复核）** | 31.60 MiB (33,135,600 B) | `c0f8d77d4297f92dba33c35cb4a433e965f93c8346b5cbdaffcb0c1a46810208` | v2 + v3 (Android 8.0+ 兼容) | `CN=Apeiria-network, C=CN` | `54c1bbbf48f34aae46225a3ef4f332852a9b8f3ac42930d47132a1b41d6c91a7` |
 
 **v19 冷缓存恢复验证（2026-08-05）**：用户手动删除项目及全局 Buildozer 缓存后，以
 `wsl_build_android.sh release v19` 成功完成 SDK bootstrap、APK 打包和 D 盘签名。脚本输出的
