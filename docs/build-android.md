@@ -198,11 +198,14 @@ wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/gen
 一次性 keystore 就位后，每次改代码打 Release APK：
 
 ```powershell
-wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v18
+wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh release v20
 ```
 
+**当前交付/验收基线**：v20。上述命令已于 2026-08-05 成功生成 signed Release APK；后续构建应
+使用新的、未占用的版本号，绝不覆盖已归档的 v20 产物。
+
 **参数强制**：`<release>` + `<version>`（`^v[0-9]+$`），缺参 exit 2。同一份代码状态下的
-debug 与 release **共享同一版本号**（例如 `debug v18` 与 `release v18` 是同一次代码的两个签名产物）。
+debug 与 release **共享同一版本号**（例如 `debug v20` 与 `release v20` 是同一次代码的两个签名产物）。
 
 `wsl_build_android.sh` 的 `release` 分支会：
 
@@ -213,7 +216,7 @@ debug 与 release **共享同一版本号**（例如 `debug v18` 与 `release v1
    buildozer 不做自动签名 —— 这是 Stage 3 Block 3 Q1 决策 C 的期望行为，不是 bug）。
 4. 脚本从 D 盘 `/mnt/d/.../buildozer.spec.local` grep 出四个 `android.release_*` 值，
    口令通过 heredoc **只走 stdin**（`--ks-pass stdin --key-pass stdin`），不落 `ps -ef`，不进 tee 日志。
-5. 调 `apksigner sign` 输出 `bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk`，
+5. 调 `apksigner sign` 输出 `bin/reversiblemosaic-0.1.0-arm64-v8a-release-v20.apk`，
    立即 `unset` 口令变量（另有 `trap` 兜底）。
 6. `apksigner verify --verbose --print-certs` 校验 v2/v3 签名。
 7. 删除中间 `-release-unsigned.apk`；`cp -a` 到 D 盘同名位置。
@@ -236,7 +239,7 @@ release.aab available in the bin directory"（buildozer 自身的 typo，说 APK
 无需再手工执行。历史上手工的等价命令：
 
 ```bash
-keytool -printcert -jarfile ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release-v18.apk
+keytool -printcert -jarfile ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-release-v20.apk
 ```
 
 记录 SHA-256 fingerprint 到 [`docs/release-notes.md`](release-notes.md) § 5 表格
@@ -248,12 +251,19 @@ Release APK 装机（真机开发者选项打开、允许安装未知来源）�
 
 ```bash
 # On the phone side (with USB debugging on)
-adb install -r bin/reversiblemosaic-0.1.0-arm64-v8a-release-v17.apk
+adb install -r bin/reversiblemosaic-0.1.0-arm64-v8a-release-v20.apk
 ```
 
-进入 App 首页 → 阶段 0 自检（临时按钮）→ 底部"Stage 3 AC-PERF 基准"按钮 →
-等待完成（30 轮 5 次跑完约需 8-10 秒 + 高轮数 sanity round-trip）。结果自动
-落入 App 私有目录 `stage3_bench.json`。
+在 K80 Pro 上完成以下 **v20 基线复核**：
+
+1. 打开 App，确认能进入首页；进入“阶段 0 自检”，点击“V1 Cython 优化”并确认显示 Cython
+   后端加载成功。
+2. 点击“Stage 3 AC-PERF 基准”，等待 2/5/15/30 轮全部完成；逐档记录 median、P95、peak RSS
+   和 PASS/FAIL。Release APK 不可用 `run-as` 导出私有 JSON 时，以 App 内完整结果截图作为证据。
+3. 在飞行模式下分别选择一张 PNG 和 JPEG，执行打码 → 保存到相册 → 查看 → 分享 → 恢复；同时
+   复核深色、浅色及大字体下主链路正常。
+4. 将截图、APK SHA-256 与签名核验结果追加到 [`docs/probe-report.md`](probe-report.md) 和
+   [`docs/test-plan.md`](test-plan.md)，再执行 AC-017 的实际交付物清点。
 
 `adb pull` 取回：
 
@@ -295,8 +305,7 @@ adb shell run-as io.placeholder.reversiblemosaic cat files/stage3_bench.json > s
   根目录 `.gitattributes` 已锁定 `*.sh`/`*.py`/`*.pyx`/`*.pxd`/`buildozer.spec`/
   `*.toml`/`requirements*.lock` 走 `text eol=lf`，`*.png`/`*.jks`/`*.apk`/`*.so`
   显式标 `binary`。**紧急恢复**：`sed -i 's/\r$//' scripts/*.sh` 是幂等的，任何时候
-  怀疑 CRLF 复发都可以直接跑（不改 `core.autocrlf` 全局配置）。事故复盘详见
-  [`stage3-block3-problems.md`](../stage3-block3-problems.md) § 4.7.2。
+  怀疑 CRLF 复发都可以直接跑（不改 `core.autocrlf` 全局配置）。
 
 如果新一次冷启动构建报错，先看 [`docs/source-index.md`](source-index.md) § Android
 打包障碍与已实施对策 —— 那里记录了每一条对策的详细来龙去脉。

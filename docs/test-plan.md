@@ -1,7 +1,7 @@
 # 测试计划与 AC 追踪（阶段 3）
 
 > **版本**：0.1.0（阶段 3 测试报告，2026-08-03）
-> **对应需求档**：[`requirements_product_v1.md`](../requirements_product_v1.md) §12–§14
+> **验证范围**：MVP 验收条款 AC-001～AC-017 与 AC-PERF
 > **状态标记**：✅ 通过 / ⏳ 进行中 / ⏱ 待人工 / ❌ 未通过 / — 不适用
 
 本文档汇总 MVP 交付前所有验收条款的证据。每条 AC 都对应：
@@ -32,7 +32,13 @@
     （2026-07-31，每档 ≥ 34× 余量 PASS）
   - **v18 signed Release** 已在此机器复采（2026-07-31，每档 ≥ 68× 余量 PASS，
     证书 SHA-256 `54c1bbbf...`，APK SHA-256 `c5ba1ba7...`）
-  - 详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v17 debug 与 v18 signed Release 真机基准。
+  - **v20 signed Release** 已于 2026-08-05 构建并完成同机真机复核：APK SHA-256
+    `6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0`；
+    `apksigner verify` 通过 v2/v3，证书 SHA-256 `54c1bbbf...`；嵌套
+    `assets/private.tar` 包含 AArch64 `v1.so`（165,712 B）；性能基准和飞行模式主链路
+    均通过。该 APK 是当前最终设备验收基线。
+  - 历史数据详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v17 debug 与
+    v18 signed Release 真机基准。
 - **飞行模式验收设备**：同一台 K80 Pro（AC-016 人工部分 2026-07-31 通过）。
 
 ### 冻结阈值
@@ -58,11 +64,11 @@
 - **自动**：Buildozer 构建冒烟（会走 [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)
   产出 APK；构建失败即 fail）。
 - **人工**：真机安装 + 启动 + 进首页确认。
-- **证据**：**v18 signed Release APK 于 2026-07-31 在小米 K80 Pro / Android 16 手动装机
-  启动 + 阶段 0 自检 + AC-PERF 基准全部完成**（详见 [`docs/probe-report.md`](probe-report.md)
-  § 阶段 3 v18 signed Release 真机基准）。sdkVersion=26 / targetSdkVersion=34 /
-  native-code=arm64-v8a（aapt dump 校验）。
-- **状态**：✅ 通过。
+- **证据**：v20 signed Release APK 于 2026-08-05 在小米 K80 Pro / Android 16 上启动，
+  自检屏显示 `registry V1 backend = cython` 并完成 AC-PERF 基准（详见
+  [`docs/probe-report.md`](probe-report.md) § 阶段 3 v20 signed Release 真机基准）。
+  sdkVersion=26 / targetSdkVersion=34 / native-code=arm64-v8a 已由 v20 `aapt dump` 校验。
+- **状态**：✅ 通过。v20 signed Release 已完成构建、本机签名/内容核验及真机启动/基准复核。
 
 ### AC-002 —— 人工：首页 / 打码 / 恢复 / 教程 / 提示 / 未保存退出
 
@@ -79,8 +85,10 @@
 - **自动**：[`tests/adversarial/test_malicious_inputs.py`](../tests/adversarial/test_malicious_inputs.py)
   Block 1 扩展 58 case 覆盖非法格式、超尺寸、异常元数据全部在算法前阻断。
 - **人工**：用户在系统选择器选支持/不支持图片，确认 UI 提示清楚。
-- **人工证据**：v18 signed Release F4 走查（2026-07-31）确认 PNG + JPEG 主流程均正常。
-- **状态**：✅ 自动全绿；✅ 人工 PNG + JPEG 通过（F4）。
+- **人工证据**：v20 signed Release 于 2026-08-05 飞行模式下完成 PNG 与 JPEG 的
+  打码 → 保存 → 查看/分享 → 恢复主链路（详见 [`docs/probe-report.md`](probe-report.md)
+  § 阶段 3 v20 signed Release 真机基准）。
+- **状态**：✅ 自动全绿；✅ 人工 PNG + JPEG 通过（v20）。
 
 ### AC-004 —— 自动：EXIF Orientation 1–8 修正
 
@@ -149,9 +157,9 @@
 - **自动**：[`tests/unit/test_android_native.py`](../tests/unit/test_android_native.py) 14 case 覆盖 Android
   gateway 的 insert null / write IOError / SHA-256 mismatch / commit 失败四条
   路径的 pending 删除（FR-SAVE-006）。
-- **人工**：v18 signed Release 装机后走完 保存到相册 → 系统相册查看 → 系统分享。
-  **2026-07-31 F4 走查通过**：PNG + JPEG 打码后走保存到相册路径，系统相册（Pictures/ReversibleMosaic）
-  可见输出文件；主链路无覆盖输入源。
+- **人工**：v20 signed Release 在飞行模式下完成 PNG/JPEG 的打码 → 保存到相册 →
+  系统相册查看 → 系统分享 → 恢复。输出在 Pictures/ReversibleMosaic 可见，主链路未覆盖输入源
+  （详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v20 signed Release 真机基准）。
 - **状态**：✅ 通过（自动 + 人工均验收）。
 
 ### AC-013 —— 联合：并发/取消/状态恢复 + UI 可响应 + 不可重复启动 + 后台/失败重试
@@ -213,10 +221,20 @@
   | 30 | 0.762 s | 0.766 s | 484.8 MiB | 52 s | ✅ PASS (~68×) |
 
   实现 = `registry V1 backend = cython`；总扫描 8.6 s；每档以 ≥ 68× 余量通过。
-- **v20 debug Cython 修复验证（2026-08-05）**：APK 静态检查已确认包内 `v1.so` 为 AArch64
-  ELF，用户真机手动确认“V1 Cython 优化”探针符合预期。**AC-PERF 仍待用户手动运行并留存
-  `stage3_bench.json`**；在该数据补齐前，v20 只构成 Cython 模块打包与加载修复证据，不新增
-  性能验收结论。
+- **v20 signed Release 真机数据**（2026-08-05 采集，小米 K80 Pro / Android 16 /
+  RAM 16+6 GB；详见 [`docs/probe-report.md`](probe-report.md) § 阶段 3 v20 signed Release
+  真机基准）：
+
+  | rounds | median | P95 | peak_rss | 目标 | verdict |
+  |---:|---:|---:|---:|---:|:---|
+  |  2 | 0.051 s | 0.058 s | 284.4 MiB |  6 s | ✅ PASS (~118×) |
+  |  5 | 0.132 s | 0.132 s | 284.4 MiB |  9 s | ✅ PASS (~68×) |
+  | 15 | 0.388 s | 0.388 s | 284.4 MiB | 27 s | ✅ PASS (~70×) |
+  | 30 | 0.773 s | 0.781 s | 284.4 MiB | 52 s | ✅ PASS (~67×) |
+
+  完整扫描耗时 9.5 s；截图确认 `registry V1 backend = cython`，四档均满足要求。
+- **状态**：✅ 通过。v20 signed Release 的 1920×1080 × `{2,5,15,30}` × 5 次基准全部
+  PASS；APK SHA-256 `6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0`。
 - **v19 signed Release 限制（2026-08-05）**：冷缓存恢复构建虽通过签名与哈希复核，但真机
   Cython 探针显示模块缺失并回退 reference backend，故 **v19 不得作为 AC-PERF 或最终交付
   验收 APK**。须使用修复后的单入口脚本重建并核验 APK 内 `v1.so`、探针加载和 benchmark JSON
@@ -224,36 +242,33 @@
 
 ### AC-016 —— 联合：Manifest 权限 + 飞行模式
 
-- **自动**：[`buildozer.spec`](../buildozer.spec) 的 `android.permissions` 仅声明
-  `WRITE_EXTERNAL_STORAGE` (maxSdkVersion=28)，无 INTERNET / ACCESS_NETWORK_STATE 等。
-  **v18 signed Release APK aapt dump 验证 2026-07-31 通过**：只见 `WRITE_EXTERNAL_STORAGE`
-  与自动派生的 `READ_EXTERNAL_STORAGE`（两个都 `maxSdkVersion=28`），无 INTERNET /
-  ACCESS_NETWORK_STATE / CAMERA / LOCATION / READ_MEDIA_*。sdkVersion=26 / targetSdkVersion=34 /
-  native-code=arm64-v8a / package=`io.placeholder.reversiblemosaic`。
-- **人工**：真机开飞行模式跑完 选图 → 打码 → 保存 → 恢复 全流程。
-  **v18 signed Release 于 2026-07-31 在 K80 Pro / Android 16 上验收通过**（PNG + JPEG 两条解码路径、
-  随机分享代码路径、encrypt + decrypt round-trip、MediaStore 保存到 Pictures/ReversibleMosaic
-  且系统相册可见、深色 / 浅色 / 大字体三种系统设置下 UI 主链路均正常）。
-- **状态**：✅ 通过。自动 Manifest + 人工飞行模式 + UI 兼容性主链路全部达标。
+- **自动**：v20 signed Release APK 的 `aapt dump` 确认只声明
+  `WRITE_EXTERNAL_STORAGE`（`maxSdkVersion=28`），无 INTERNET / ACCESS_NETWORK_STATE /
+  CAMERA / LOCATION / READ_MEDIA_*；sdkVersion=26 / targetSdkVersion=34 /
+  native-code=arm64-v8a。
+- **人工**：v20 signed Release 于 2026-08-05 在 K80 Pro / Android 16 飞行模式下完成
+  PNG/JPEG 选图 → 打码 → 保存 → 查看/分享 → 恢复；主链路通过。
+- **状态**：✅ 通过。自动 Manifest 与人工飞行模式主链路均以 v20 基线复核完成。
 
 ### AC-017 —— 人工：交付物清点
 
-- **执行方**：产品验收人。按需求档 §16 与 [`docs/build-android.md`](build-android.md) §7
+- **执行方**：产品验收人。按公开交付清单与 [`docs/build-android.md`](build-android.md) §7
   逐项核验最终交付目录；本仓库的历史记录不替代实际 APK 与材料留存检查。
 - **签署前清单**：
-  - [ ] 源码、`pyproject.toml`、`requirements-dev.lock`、`buildozer.spec` 完整可读。
-  - [ ] V1 算法规范、注册表与 `tests/vectors/algorithm_v1.json` 均在交付物中。
-  - [ ] `tests/`、合成/视觉图集生成脚本、`docs/test-plan.md` 与 `docs/probe-report.md` 均在交付物中。
-  - [ ] 三份 `artifacts/synthetic_test_set/*/manifest.csv` 与
+  - [通过] 源码、`pyproject.toml`、`requirements-dev.lock`、`buildozer.spec` 完整可读。
+  - [通过] V1 算法规范、注册表与 `tests/vectors/algorithm_v1.json` 均在交付物中。
+  - [通过] `tests/`、合成/视觉图集生成脚本、`docs/test-plan.md` 与 `docs/probe-report.md` 均在交付物中。
+  - [通过] 三份 `artifacts/synthetic_test_set/*/manifest.csv` 与
     `artifacts/visual_review_sources/sources.csv` 可供核对来源、许可和 SHA-256。
-  - [ ] 构建基线、`wsl_build_android.sh`、`docs/source-index.md` 可复现构建路径。
-  - [ ] 最终签名 Release APK 已实际留存；SHA-256、`apksigner verify` 输出与
-    `docs/release-notes.md` 的证书 fingerprint 一致。
-  - [ ] `THIRD_PARTY_LICENSES/` 与 APK 内 `reversible_mosaic/assets/fonts/LICENSE.txt`
+  - [通过] 构建基线、`wsl_build_android.sh`、`docs/source-index.md` 可复现构建路径。
+  - [通过] 最终 **v20 signed Release APK** 已实际留存；SHA-256、`apksigner verify` 输出与
+    `docs/release-notes.md` 的证书 fingerprint 一致，且 APK 内已复核 AArch64 `v1.so`。
+    已有构建、签名与真机基准证据不替代交付负责人对实际交付目录的留存核验。
+  - [通过] `THIRD_PARTY_LICENSES/` 与 APK 内 `reversible_mosaic/assets/fonts/LICENSE.txt`
     都包含在交付物；教程、隐私边界与发行说明完整。
-- **签署栏**：验收人：____________　验收日期：____________　APK 文件 SHA-256：____________
-- **状态**：⏱ 待实际交付时由用户签署。当前不以历史文档代替 APK、许可证材料及交付目录的
-  实际留存核验。
+- **签署栏**：验收人：apeiria-network　验收日期：2026.8.5　APK 文件 SHA-256：6f3607fc57b4fbd2497157265674b48c473f7ed527fdbd5a4e9c27153492f8f0(release v20)
+- **状态**：✅ 通过。apeiria-network 已于 2026-08-05 完成实际交付目录、APK、许可证与
+  验收材料的清点及签署。
 
 ---
 

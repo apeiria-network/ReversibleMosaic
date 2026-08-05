@@ -15,7 +15,7 @@
 #   D 盘 : /mnt/d/python/python_projects/ReversibleMosaic/bin/  同名
 # 目标文件若已存在，脚本报错退出（不覆盖，避免误替换已发出的 APK）。
 #
-# Release 分支的签名策略（stage3-block3-problems.md Q1 决策 C）：
+# Release 分支的签名策略：
 #   - buildozer.spec.local 只保留在 D 盘（rsync 已排除），WSL 侧永远没有；
 #   - WSL 侧 buildozer android release 因此产出 unsigned APK；
 #   - 本脚本用 apksigner 直接签名，口令通过 stdin heredoc 传入

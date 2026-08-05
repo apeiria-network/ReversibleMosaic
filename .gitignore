@@ -24,6 +24,9 @@ bin/
 keys/
 buildozer.spec.local
 LOCAL_WSL_CLEANUP.md
+/development_plan.md
+/requirements_product_v1.md
+/stage3-block3-problems.md
 local.properties
 .env
 .cache/

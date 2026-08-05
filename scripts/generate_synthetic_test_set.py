@@ -13,8 +13,9 @@ Emits three folders under ``artifacts/synthetic_test_set/``:
                      (truncated / bogus dims / bad CRC / zero-byte / random
                      bytes with image-file extension / bogus EXIF Orientation).
 
-All outputs are deterministic (fixed RNG seed). A ``manifest.csv`` in each
-folder records ``filename, sha256, category, notes``.
+All outputs are deterministic (fixed RNG seed). A UTF-8-with-BOM ``manifest.csv`` in
+each folder records ``filename, sha256, category, notes`` so Windows spreadsheet
+applications recognize the Chinese fields when opening it directly.
 
 Run once with::
 
@@ -304,7 +305,7 @@ def _save(
 
 def _write_manifest(folder: Path, records: list[tuple[str, str]]) -> None:
     manifest = folder / "manifest.csv"
-    with manifest.open("w", encoding="utf-8", newline="") as target:
+    with manifest.open("w", encoding="utf-8-sig", newline="") as target:
         writer = csv.writer(target)
         writer.writerow(["filename", "sha256", "category", "notes", "license"])
         category = folder.name

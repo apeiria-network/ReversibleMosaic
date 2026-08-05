@@ -1160,7 +1160,7 @@ Buildozer 当 loose file 打进 APK。
 - **背景**：Windows 侧 git `core.autocrlf=true` 在 `git checkout` 切分支时会把
   LF 文件转 CRLF 落盘。WSL 里 bash 读 `set -euo pipefail\r` 时把 `pipefail\r`
   当非法选项，报 `invalid option name`；`\r` 让终端光标回行首覆盖显示，错误
-  信息看起来像随机乱码。事故记录见 [`stage3-block3-problems.md`](../stage3-block3-problems.md) § 4.7.2。
+  信息看起来像随机乱码。
 - **改动指引**：
   - **不要**改用户全局 `core.autocrlf` 配置（会污染他其他项目）。`.gitattributes` 是项目级方案。
   - **不要**在 shell 脚本头部加防御性 `sed 's/\r$//'` —— hack；`.gitattributes` 是根本解。
@@ -1172,34 +1172,23 @@ Buildozer 当 loose file 打进 APK。
 
 ## 计划与文档（`docs/`）
 
-- [`docs/algorithm-v1.md`](algorithm-v1.md)：V1 算法规范（**FROZEN 2026-07-30**，
-  rounds {2, 5, 15, 30}, R=max(8, min(W,H)//32)）。**附录 A：面向读者的算法讲解**
-  （A.1–A.12，2026-07-30 追加）给出直觉版说明 + ASCII 公式 + 可逆性直觉证明，
-  是"想读懂 V1 在做什么"的入口，不覆盖 §1–5 的严格规范。
-- [`docs/build-android.md`](build-android.md)：**Stage 3 Block 2 大改** ——
-  阶段 0 草案升级为**阶段 3 冻结基线**。工具链版本（OpenJDK 17 / NDK r25b /
-  target Python 3.14 / NumPy 2.3.0 / Pillow 11.3.0 / Cython 3.2.9）、Android
-  目标（API 34 / minapi 26 / arm64-v8a）、一次性准备、增量构建、Cython 交叉
-  编译时序、APK 版本后缀命名、签名策略、已知障碍与对策全部落地。所有工具链
-  升级必须同步这份文档。
-- [`docs/release-notes.md`](release-notes.md)：**Stage 3 Block 2 新增，Block 3 收官时补齐** ——
-  v0.1.0 MVP 内部签名 Release 发行说明。§1 版本身份与限制（applicationId
-  占位 + 内部自签 keystore + 正式发布五步走）；§2-4 功能/限制/已知问题；§5
-  版本历史（Stage 0-3 全流程 + v17/v18 signed Release APK SHA-256 + 证书
-  fingerprint + K80 Pro 真机验收记录）；§6 **第三方组件与许可清单**
-  （APK 内 14 项 + PC dev + 构建工具）；§7-8 用户教程要点/支持反馈。
-- [`docs/test-plan.md`](test-plan.md)：**Stage 3 Block 2 新增，Block 3 收官时刷新** ——
-  测试计划与 AC 追踪。§1 环境快照（K80 Pro 冻结）+ 冻结阈值；§2 AC-001~017 +
-  AC-PERF 逐条 status 标记（Block 3 收官后 AC-001 / AC-003 / AC-012 / AC-016 /
-  AC-PERF 全部转 ✅）；§3 覆盖率汇总（250 passed / 21 skipped）；§4 §12.3
-  单人偏差豁免记录；§5 Block 3 已收官清单 + Block 4 未落地项。
-- [`docs/probe-report.md`](probe-report.md)：性能/质量探针数据。Stage 0 v5/v6
-  + Stage 1 v7 + Stage 3 v17 debug + Stage 3 v18 signed Release 四代 APK
-  真机数据全部入档；当前 AC-PERF 判定以 v18 signed Release (K80 Pro) 为准。
+- [`docs/algorithm-v1.md`](algorithm-v1.md)：V1 算法的冻结规范。定义输入输出契约、种子派生、
+  邻域置换、正逆变换、固定向量与视觉质量阈值；附录 A 提供非规范性的直觉说明。
+  **改动指引**：V1 已冻结，任何会改变像素输出的修改必须新增算法版本，而不是修改本文件的
+  V1 规则。
+- [`docs/build-android.md`](build-android.md)：Android/WSL 构建、签名、安装和真机验收的
+  操作手册。包含工具链前置条件、标准构建命令、Cython 交叉编译、Release 签名、性能基准、
+  构建故障排查与交付物清单。**改动指引**：修改构建脚本、SDK/NDK、依赖或签名流程时同步更新。
+- [`docs/release-notes.md`](release-notes.md)：内部 Release 的版本身份、功能范围、已知限制、
+  APK 哈希与签名记录、第三方组件许可、用户使用要点和支持说明。**改动指引**：生成新的交付
+  APK 或变更发布范围、依赖许可、已知限制时同步更新。
+- [`docs/test-plan.md`](test-plan.md)：需求验收标准（AC）的追踪表。记录测试环境、每项验收的
+  自动/人工证据、状态、豁免条件、覆盖率汇总与最终交付清点。**改动指引**：新增测试、执行真机
+  验收、调整验收结论或准备最终交付时同步更新对应条目。
+- [`docs/probe-report.md`](probe-report.md)：算法、性能与运行时探针的原始测量和结论归档。
+  用于记录设备信息、基准口径、耗时、内存、Cython 后端状态及视觉质量相关数据。
+  **改动指引**：运行新的性能、质量或平台探针后，将可复核的结果追加到本报告。
 - [`docs/source-index.md`](source-index.md)：**本文件**。
-
-根目录的 [`development_plan.md`](../development_plan.md) 是**执行基线** —— 阶段
-进度、障碍/对策、待办都写在那里；每完成一个可验证节点更新一次。
 
 ---
 
