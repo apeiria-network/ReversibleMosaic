@@ -4,14 +4,14 @@
 # Usage:
 #   wsl_build_android.sh <mode> <version>
 #     <mode>    : debug | release  (required, no default)
-#     <version> : v<digits> or semantic v<major>.<minor>.<patch> (required, e.g. v1.0.0)
+#     <version> : v<digits>        (required, e.g. v18)
 #
 # 例：
 #   wsl_build_android.sh debug   v18
-#   wsl_build_android.sh release v1.0.0
+#   wsl_build_android.sh release v18
 #
 # Debug 与 Release 产物文件名都会带 -<version> 后缀，落到：
-#   WSL   : ~/src/ReversibleMosaic/bin/reversiblemosaic-<app-version>-arm64-v8a-<mode>-<version>.apk
+#   WSL   : ~/src/ReversibleMosaic/bin/reversiblemosaic-0.1.0-arm64-v8a-<mode>-<version>.apk
 #   D 盘 : /mnt/d/python/python_projects/ReversibleMosaic/bin/  同名
 # 目标文件若已存在，脚本报错退出（不覆盖，避免误替换已发出的 APK）。
 #
@@ -28,7 +28,7 @@ set -euo pipefail
 usage() {
     cat >&2 <<USAGE
 usage: $0 <debug|release> <version>
-       <version> must match ^v[0-9]+$ or ^v[0-9]+\.[0-9]+\.[0-9]+$   (例: v1.0.0)
+       <version> must match ^v[0-9]+$   (例: v18)
 example:
        $0 debug   v18
        $0 release v18
@@ -49,8 +49,8 @@ if [ -z "$BUILD_VERSION" ]; then
     echo "[error] missing <version>" >&2
     usage
 fi
-if ! [[ "$BUILD_VERSION" =~ ^v[0-9]+$ || "$BUILD_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "[error] version must match ^v[0-9]+$ or semantic ^vMAJOR.MINOR.PATCH$, got: $BUILD_VERSION" >&2
+if ! [[ "$BUILD_VERSION" =~ ^v[0-9]+$ ]]; then
+    echo "[error] version must match ^v[0-9]+$, got: $BUILD_VERSION" >&2
     usage
 fi
 
@@ -66,15 +66,8 @@ DRIVE_ROOT="/mnt/d/python/python_projects/ReversibleMosaic"
 SPEC_LOCAL_DRIVE="$DRIVE_ROOT/buildozer.spec.local"
 DRIVE_BIN="$DRIVE_ROOT/bin"
 
-# 读取 Buildozer 应用版本，使最终产物名称与 APK 元数据保持一致。
-APP_VERSION="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*//p' "$DRIVE_ROOT/buildozer.spec" | head -n 1)"
-if [ -z "$APP_VERSION" ]; then
-    echo "[error] unable to read app version from buildozer.spec" >&2
-    exit 2
-fi
-
-# 目标 APK 命名（package.name=reversiblemosaic, arch=arm64-v8a）。
-APK_STEM="reversiblemosaic-${APP_VERSION}-arm64-v8a-${BUILD_MODE}-${BUILD_VERSION}"
+# 目标 APK 命名（package.name=reversiblemosaic, version=0.1.0, arch=arm64-v8a）
+APK_STEM="reversiblemosaic-0.1.0-arm64-v8a-${BUILD_MODE}-${BUILD_VERSION}"
 FINAL_APK_WSL="$WORKSPACE/bin/${APK_STEM}.apk"
 FINAL_APK_DRIVE="$DRIVE_BIN/${APK_STEM}.apk"
 
@@ -250,7 +243,7 @@ mkdir -p "$WORKSPACE/bin"
 mkdir -p "$DRIVE_BIN"
 
 if [ "$BUILD_MODE" = "debug" ]; then
-    PRODUCED="$WORKSPACE/bin/reversiblemosaic-${APP_VERSION}-arm64-v8a-debug.apk"
+    PRODUCED="$WORKSPACE/bin/reversiblemosaic-0.1.0-arm64-v8a-debug.apk"
     if [ ! -f "$PRODUCED" ]; then
         echo "[error] expected debug APK not found: $PRODUCED" >&2
         exit 5
@@ -258,7 +251,7 @@ if [ "$BUILD_MODE" = "debug" ]; then
     mv -f "$PRODUCED" "$FINAL_APK_WSL"
 else
     # Release: buildozer 因 WSL 侧无 spec.local，产出 -release-unsigned.apk。
-    PRODUCED="$WORKSPACE/bin/reversiblemosaic-${APP_VERSION}-arm64-v8a-release-unsigned.apk"
+    PRODUCED="$WORKSPACE/bin/reversiblemosaic-0.1.0-arm64-v8a-release-unsigned.apk"
     if [ ! -f "$PRODUCED" ]; then
         echo "[error] expected unsigned release APK not found: $PRODUCED" >&2
         echo "        Did buildozer's release build fail?" >&2

@@ -17,7 +17,6 @@ bin/
 *.apk
 *.aab
 *.keystore
-*developer_docs/
 *.jks
 frontend_design/
 # Stage 3: keystore + signing config live in-tree per user choice. keys/ is a

@@ -29,6 +29,8 @@ try:
     from kivy.core.text import LabelBase
     from kivy.core.window import Window
     from kivy.lang import Builder
+    from kivy.properties import StringProperty
+    from kivy.uix.anchorlayout import AnchorLayout
     from kivy.uix.screenmanager import Screen
 except ImportError as exc:  # pragma: no cover - friendly optional dependency boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
@@ -53,8 +55,6 @@ from reversible_mosaic.ui.screens import (  # noqa: E402
     ProgressScreen,
     ResultScreen,
 )
-from reversible_mosaic.ui.tutorial import TutorialScreen  # noqa: E402
-
 try:
     from reversible_mosaic._build_info import SHOW_STAGE0_SELF_TEST
 except ImportError:
@@ -62,7 +62,7 @@ except ImportError:
     SHOW_STAGE0_SELF_TEST = True
 
 if SHOW_STAGE0_SELF_TEST:
-    from reversible_mosaic.ui.self_test import SelfTestScreen  # noqa: F401
+    from reversible_mosaic.ui.self_test import SelfTestScreen  # noqa: E402
 
 from reversible_mosaic.ui.view_models import (  # noqa: E402
     ProgressSnapshot,
@@ -199,6 +199,25 @@ _KV = r"""
 
 <TutorialScreen>:
     name: "tutorial"
+    BoxLayout:
+        orientation: "vertical"
+        padding: dp(24)
+        spacing: dp(16)
+        Label:
+            text: "使用说明"
+            font_size: dp(22)
+            size_hint_y: None
+            height: dp(48)
+        Label:
+            text: root.tutorial_text
+            text_size: self.width, None
+            valign: "top"
+            halign: "left"
+        Button:
+            text: "返回首页"
+            size_hint_y: None
+            height: dp(52)
+            on_release: app.root.current = "home"
 
 ScreenManager:
     HomeScreen:
@@ -236,6 +255,16 @@ ScreenManager:
 
 class HomeScreen(Screen):  # type: ignore[misc]
     pass
+
+
+class TutorialScreen(Screen):  # type: ignore[misc]
+    tutorial_text = StringProperty(
+        "1. 选择图片并确认轮数。\n"
+        "2. 妥善记录规范化分享代码; App 不保存也无法找回。\n"
+        "3. 恢复时算法版本、轮数和分享代码必须匹配。\n"
+        "4. 必须以文件/原图传播; 截图、裁剪或转码后不保证恢复。\n"
+        "5. 本产品是可逆视觉混淆, 不是密码学加密。"
+    )
 
 
 # Re-export so KV Builder resolves the widget names.
