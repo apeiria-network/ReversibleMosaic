@@ -1,0 +1,70 @@
+"""Tests for the user-facing, styled in-app tutorial."""
+
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("kivy", reason="tutorial screen requires kivy from .[app]")
+
+from kivy.uix.button import Button
+from kivy.uix.image import Image
+from kivy.uix.scrollview import ScrollView
+
+from reversible_mosaic.ui.tutorial import (
+    TUTORIAL_ASSET_DIR,
+    TUTORIAL_BLOCKS,
+    TUTORIAL_IMAGE_FILENAMES,
+    TutorialScreen,
+)
+
+
+def _tutorial_text() -> str:
+    return "\n".join(block.text for block in TUTORIAL_BLOCKS)
+
+
+def test_tutorial_contains_only_user_facing_sections() -> None:
+    text = _tutorial_text()
+
+    for heading in ("APP 使用效果", "快速开始", "APP 功能", "使用限制与建议", "项目定位"):
+        assert heading in text
+
+    assert "给开发者的信息" not in text
+    assert "developer_docs" not in text
+    assert "docs/" not in text
+    assert "http://" not in text
+    assert "https://" not in text
+
+
+def test_tutorial_images_are_referenced_and_packaged() -> None:
+    referenced_images = tuple(
+        block.image_filename for block in TUTORIAL_BLOCKS if block.kind == "image"
+    )
+
+    assert referenced_images == TUTORIAL_IMAGE_FILENAMES
+    for filename in TUTORIAL_IMAGE_FILENAMES:
+        path = TUTORIAL_ASSET_DIR / filename
+        assert path.is_file(), f"missing tutorial asset: {path}"
+        assert path.stat().st_size > 0
+
+
+def test_tutorial_share_code_guidance_matches_default_flow() -> None:
+    text = _tutorial_text()
+
+    assert "默认值为 500000" in text
+    assert "通常不需要修改" in text
+    assert "无需用户填入" in text
+    assert "只有打码时修改过代码" in text
+    assert "随机 6 位" in text
+
+
+def test_tutorial_screen_has_scrollable_content_images_and_return_button() -> None:
+    screen = TutorialScreen(name="tutorial")
+    descendants = list(screen.walk())
+
+    assert any(isinstance(widget, ScrollView) for widget in descendants)
+    assert sum(isinstance(widget, Image) for widget in descendants) == len(
+        TUTORIAL_IMAGE_FILENAMES
+    )
+    assert any(
+        isinstance(widget, Button) and widget.text == "返回首页" for widget in descendants
+    )
