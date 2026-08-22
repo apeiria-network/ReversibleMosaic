@@ -1,6 +1,6 @@
 # 第三方许可证与通知清单
 
-本目录是 v0.1.0 内部 Release 的交付材料。它覆盖
+本目录是 v1.0.0 内部 Release 的交付材料。它覆盖
 [发行说明](../docs/release-notes.md) §6 中列出的 APK 运行时组件；PC 开发工具和 Android
 SDK/NDK 不会随 APK 分发，因此只在发行说明中列示。
 
