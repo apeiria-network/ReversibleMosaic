@@ -81,8 +81,7 @@ def test_desktop_input_imports_to_cache(tmp_path: Path) -> None:
 
 def test_desktop_clipboard_is_noop() -> None:
     gateway = DesktopClipboardGateway()
-    # Just needs to not raise.
-    gateway.copy_sensitive("500000")
+    assert gateway.copy_sensitive("500000") is True
 
 
 # ---------------------------------------------------------------------------

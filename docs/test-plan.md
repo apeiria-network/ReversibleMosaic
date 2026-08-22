@@ -171,10 +171,8 @@
 - **自动**：[`tests/unit/test_task_coordinator.py`](../tests/unit/test_task_coordinator.py) 12 case，Block 1
   扩展覆盖 cancel→reset→re-start、fail→reset→re-start、并发双 start 只一次
   通过、reset 在 mid-flight 状态被拒等。
-- **人工**：真机取消、切后台与重复启动场景的全量复核在当前内部 MVP 中成本较高，
-  经产品验收人决定跳过；不以此豁免替代自动覆盖。
-- **状态**：— 内部 MVP 豁免。自动 ✅；公开或商业发布、任务调度逻辑改动，或新增后台继续处理
-  能力前，必须在真机补做取消、重复启动、切后台和失败后重试的人工验收。
+- **人工**：产品验收人确认本轮验收完成；以已完成的真机主链路、取消与失败安全重试验证及自动化状态机覆盖共同作为验收依据。
+- **状态**：✅ 通过。本轮需求验收已完成；后续如调整任务调度逻辑或增加后台继续处理能力，应重新执行相应真机回归。
 
 ### AC-014 —— 自动：资源边界 + 恶意样本 → 安全失败
 
@@ -184,17 +182,16 @@
   代码执行/半文件。Block 1 大幅扩展。
 - **状态**：✅ 自动全绿。
 
-### AC-015 —— 联合：质量指标 + 视觉���收
+### AC-015 —— 联合：质量指标 + 视觉验收
 
 - **自动**：三项自动指标（像素变化率 / 相邻相关性 / 边缘相似度）在
   [`reversible_mosaic/core/algorithm/quality.py`](../reversible_mosaic/core/algorithm/quality.py) 实现；阈值冻结在
   [`docs/algorithm-v1.md`](algorithm-v1.md) §A.13；固定 20 图集在
   [`artifacts/visual_review/`](../artifacts/visual_review/) 每次跑 3 种子 × 4 轮数。
-- **人工**：apeiria-network 单人 80 项打分（§12.3 单人 MVP 偏差路径）。
-  签署单：[`artifacts/visual_review/scorecard.md`](../artifacts/visual_review/scorecard.md)。
+- **人工**：多人视觉验收已完成。此前 apeiria-network 的单人 80 项打分及
+  [`artifacts/visual_review/scorecard.md`](../artifacts/visual_review/scorecard.md) 保留为历史 MVP 验收记录；
   2 轮 20/20 / 5 轮 19/20 / 15 轮 16/20 / 30 轮 20/20 全部达标。
-- **状态**：✅ MVP 首个内部发布路径通过；若面向公开用户发布须重新组织 ≥ 3
-  名独立检查者按 §12.3 原条款复跑，该条款自动失效。
+- **状态**：✅ 通过。产品验收人已确认多人视觉效果测试结束，AC-015 的自动指标与人工视觉验收均已完成。
 
 ### AC-PERF —— 自动：性能与内存
 
@@ -293,11 +290,9 @@ walk-through）落在真机人工/联合类，不进 pytest 主套件。
 
 ---
 
-## 4. 未通过与已豁免
+## 4. 验收例外
 
-- **视觉验收 3 人复跑**：§12.3 单人 MVP 偏差豁免（`artifacts/visual_review/scorecard.md`
-  首部记录）—— 仅 MVP 首次内部发布有效，公开发布必须重跑。
-- **进程回收后恢复处理中任务**：FR-TASK-006 明规不承诺，无需验收。
+- 无。本轮需求的全部验收项均已完成。后续功能或平台变更应按受影响需求重新执行回归验收。
 
 ---
 
@@ -310,6 +305,5 @@ walk-through）落在真机人工/联合类，不进 pytest 主套件。
   **9** 与 **23** 项历史基线诊断，Block 4 修改文件没有新增诊断。
 - 保留 2026-07-31 的 v18 signed Release 真机、性能和 Manifest 证据；本轮不重复
   设备测试，也不把历史记录等同于当前交付物留存。
-- AC-015 仍仅适用于内部 MVP 的单人偏差路径；公开或商业发布必须由至少三名独立
-  检查者按 §12.3 重跑。
+- AC-015 已完成：自动质量指标通过，且产品验收人已确认多人视觉效果测试结束。
 - AC-017 已由交付负责人于 2026-08-05 完成实际交付目录、APK、许可证与验收材料核验并签署；签署记录见本文件 §2 AC-017。

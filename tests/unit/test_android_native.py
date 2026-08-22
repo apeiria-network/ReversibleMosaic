@@ -265,10 +265,8 @@ def test_share_subject_never_contains_share_code() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_clipboard_swallows_all_jni_errors() -> None:
-    """``copy_sensitive`` is explicitly best-effort -- any exception must be
-    swallowed so the surrounding user flow (post-encrypt UI update) is never
-    interrupted."""
+def test_clipboard_returns_false_on_jni_error() -> None:
+    """JNI failures are non-fatal and must be reported as unsuccessful."""
 
     def _boom(name: str) -> Any:
         raise RuntimeError("JNI unavailable")
@@ -278,18 +276,52 @@ def test_clipboard_swallows_all_jni_errors() -> None:
         patch.object(native, "_autoclass", side_effect=_boom),
     ):
         gw = native.AndroidClipboardGateway()
-        # Must not raise even though every JNI call inside would blow up.
-        gw.copy_sensitive("500000")
+        assert gw.copy_sensitive("500000") is False
 
 
-def test_clipboard_swallows_missing_activity() -> None:
+def test_clipboard_returns_false_on_missing_activity() -> None:
     with _patch_android():
-        # Force PythonActivity.mActivity to be None inside copy_sensitive.
         class _NoActivity:
             mActivity = None
 
         with patch.object(native, "_autoclass", return_value=_NoActivity):
-            native.AndroidClipboardGateway().copy_sensitive("500000")  # no raise
+            assert native.AndroidClipboardGateway().copy_sensitive("500000") is False
+
+
+def test_clipboard_returns_true_and_writes_primary_clip() -> None:
+    manager = MagicMock(name="clipboard_manager")
+    activity = MagicMock(name="activity")
+    activity.getSystemService.return_value = manager
+
+    class _Context:
+        CLIPBOARD_SERVICE = "clipboard"
+
+    class _PythonActivity:
+        mActivity = activity
+
+    class _String:
+        def __new__(cls, value: Any) -> str:
+            return str(value)
+
+    clip = MagicMock(name="clip")
+
+    def _fake_autoclass(name: str) -> Any:
+        return {
+            "android.content.Context": _Context,
+            "org.kivy.android.PythonActivity": _PythonActivity,
+            "android.content.ClipData": MagicMock(newPlainText=MagicMock(return_value=clip)),
+            "java.lang.String": _String,
+        }.get(name, MagicMock(name=name))
+
+    with (
+        patch.object(native, "is_available", return_value=True),
+        patch.object(native, "_api_level", return_value=28),
+        patch.object(native, "_autoclass", side_effect=_fake_autoclass),
+    ):
+        assert native.AndroidClipboardGateway().copy_sensitive("500000") is True
+
+    manager.setPrimaryClip.assert_called_once_with(clip)
+
 
 # ---------------------------------------------------------------------------
 # AC-011 diagnostic and share-boundary privacy

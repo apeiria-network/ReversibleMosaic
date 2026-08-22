@@ -73,7 +73,7 @@ def _register_builtin_versions() -> None:
     register(
         AlgorithmDescriptor(
             version=1,
-            display_name="V1 (未发布)",
+            display_name="2026-8-22",
             release_date=None,
             encrypt=encrypt,
             decrypt=decrypt,

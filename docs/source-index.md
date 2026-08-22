@@ -29,13 +29,14 @@
 - **作用**：Kivy 应用外壳；阶段 2a 起为生产版本。纯 Kivy（无 kivymd）；
   `LabelBase.register(name="Roboto", fn_regular="assets/fonts/wqy-microhei.ttc")`
   在 import 阶段把默认字体替换成覆盖 Latin+CJK 的 wqy-microhei。
-  `ScreenManager` 挂 7 个屏：
-  `home` / `tutorial` / `encode` / `decode` / `progress` / `result` / `self_test`。
+  `_build_info.py` 提供构建 flavor；debug 注册阶段 0 自检页，release 不注册也不显示该入口。
+  `_KV` 同时集中定义白底黑字、黑底白字圆角按钮，以及白底黑字黑色圆角边框输入框。
+  `ScreenManager` 挂载生产页面，阶段 0 自检页仅在 debug 构建额外挂载。
 - **关键 export**：`ReversibleMosaicApp(App)`、`HomeScreen(Screen)`、
   `TutorialScreen(Screen)`。Encode/Decode/Progress/Result 屏从
-  [ui/screens.py](../reversible_mosaic/ui/screens.py) 导入；SelfTestScreen 从
-  [ui/self_test.py](../reversible_mosaic/ui/self_test.py) 导入。`_KV` 内嵌
-  home/tutorial 的 KV markup。
+  [ui/screens.py](../reversible_mosaic/ui/screens.py) 导入；debug 构建时
+  `SelfTestScreen` 从 [ui/self_test.py](../reversible_mosaic/ui/self_test.py) 导入。
+  `_KV` 内嵌 home/tutorial 的 KV markup。
 - **App 状态**（`ReversibleMosaicApp` 实例属性）：
   - `encrypted_form_state: TaskFormState` / `restored_form_state: TaskFormState`
     — encode/decode 两个屏各自独立的表单状态，跨屏返回时保留。
