@@ -27,8 +27,10 @@ try:
     from kivy.app import App
     from kivy.clock import Clock
     from kivy.core.text import LabelBase
+    from kivy.core.window import Window
     from kivy.lang import Builder
     from kivy.properties import StringProperty
+    from kivy.uix.anchorlayout import AnchorLayout
     from kivy.uix.screenmanager import Screen
 except ImportError as exc:  # pragma: no cover - friendly optional dependency boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
@@ -53,55 +55,147 @@ from reversible_mosaic.ui.screens import (  # noqa: E402
     ProgressScreen,
     ResultScreen,
 )
-from reversible_mosaic.ui.self_test import SelfTestScreen  # noqa: E402
+try:
+    from reversible_mosaic._build_info import SHOW_STAGE0_SELF_TEST
+except ImportError:
+    # Desktop development and source checkouts default to the diagnostic screen.
+    SHOW_STAGE0_SELF_TEST = True
+
+if SHOW_STAGE0_SELF_TEST:
+    from reversible_mosaic.ui.self_test import SelfTestScreen  # noqa: E402
+
 from reversible_mosaic.ui.view_models import (  # noqa: E402
     ProgressSnapshot,
     ResultSnapshot,
     TaskFormState,
 )
 
+Window.clearcolor = (1, 1, 1, 1)
+
 _KV = r"""
 #:import dp kivy.metrics.dp
+
+<Label>:
+    color: 0, 0, 0, 1
+
+<Button>:
+    color: 1, 1, 1, 1
+    background_normal: ""
+    background_down: ""
+    background_disabled_normal: ""
+    background_disabled_down: ""
+    background_color: 0, 0, 0, 0
+    border: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0, 0, 0, 1) if not self.disabled else (0.65, 0.65, 0.65, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(12)]
+
+<Spinner>:
+    color: 1, 1, 1, 1
+    background_normal: ""
+    background_down: ""
+    background_color: 0, 0, 0, 1
+    canvas.after:
+        Color:
+            rgba: 1, 1, 1, 1
+        Triangle:
+            points: [self.right - dp(20), self.center_y + dp(4), self.right - dp(10), self.center_y + dp(4), self.right - dp(15), self.center_y - dp(4)]
+
+<SpinnerOption>:
+    background_normal: ""
+    background_down: ""
+    background_color: 0, 0, 0, 1
+    color: 1, 1, 1, 1
+    border: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<TextInput>:
+    foreground_color: 0, 0, 0, 1
+    hint_text_color: 0.45, 0.45, 0.45, 1
+    background_normal: ""
+    background_active: ""
+    background_color: 1, 1, 1, 1
+    cursor_color: 0, 0, 0, 1
+    selection_color: 0.75, 0.75, 0.75, 1
+    padding: dp(10), dp(8)
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 1
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(8)]
+        Color:
+            rgba: 1, 1, 1, 1
+        RoundedRectangle:
+            pos: self.x + dp(1), self.y + dp(1)
+            size: self.width - dp(2), self.height - dp(2)
+            radius: [dp(7)]
+        Color:
+            rgba: self.disabled_foreground_color if self.disabled else (self.hint_text_color if not self.text else self.foreground_color)
+
 
 <HomeScreen>:
     name: "home"
     BoxLayout:
         orientation: "vertical"
         padding: dp(24)
-        spacing: dp(16)
+        spacing: dp(14)
         Label:
             text: "ReversibleMosaic"
             font_size: dp(28)
             size_hint_y: None
             height: dp(56)
-        Label:
-            text: "所有图片仅在本机处理"
-            font_size: dp(16)
-            color: 0.6, 0.6, 0.6, 1
-            size_hint_y: None
-            height: dp(32)
+            halign: "center"
+            valign: "middle"
+            text_size: self.size
         Widget:
-        Button:
-            text: "打码"
+            size_hint_y: 0.618
+        AnchorLayout:
             size_hint_y: None
-            height: dp(52)
-            on_release: app.open_encode()
-        Button:
-            text: "恢复"
+            height: dp(54)
+            anchor_x: "center"
+            anchor_y: "center"
+            Button:
+                text: "图片打码"
+                size_hint_x: 0.82
+                size_hint_y: None
+                height: dp(54)
+                on_release: app.open_encode()
+        AnchorLayout:
             size_hint_y: None
-            height: dp(52)
-            on_release: app.open_decode()
-        Button:
-            text: "教程与安全边界"
+            height: dp(54)
+            anchor_x: "center"
+            anchor_y: "center"
+            Button:
+                text: "图片恢复"
+                size_hint_x: 0.82
+                size_hint_y: None
+                height: dp(54)
+                on_release: app.open_decode()
+        AnchorLayout:
             size_hint_y: None
-            height: dp(52)
-            on_release: app.root.current = "tutorial"
-        Button:
-            text: "阶段 0 自检 (临时)"
-            size_hint_y: None
-            height: dp(40)
-            font_size: dp(14)
-            on_release: app.root.current = "self_test"
+            height: dp(54)
+            anchor_x: "center"
+            anchor_y: "center"
+            Button:
+                text: "教程|须知"
+                size_hint_x: 0.82
+                size_hint_y: None
+                height: dp(54)
+                on_release: app.root.current = "tutorial"
+        Widget:
+            size_hint_y: 0.30
+        {self_test_button}
 
 <TutorialScreen>:
     name: "tutorial"
@@ -136,9 +230,27 @@ ScreenManager:
         name: "progress"
     ResultScreen:
         name: "result"
-    SelfTestScreen:
-        name: "self_test"
-"""
+{self_test_screen}
+""".format(
+    self_test_button=(
+        'Button:\n'
+        '            text: "阶段 0 自检 (临时)"\n'
+        '            size_hint_y: None\n'
+        '            height: dp(40)\n'
+        '            font_size: dp(14)\n'
+        '            on_release: app.root.current = "self_test"\n'
+        if SHOW_STAGE0_SELF_TEST
+        else ""
+    ),
+    self_test_screen=(
+        '    SelfTestScreen:\n'
+        '        name: "self_test"\n'
+        if SHOW_STAGE0_SELF_TEST
+        else ""
+    ),
+)
+
+
 
 
 class HomeScreen(Screen):  # type: ignore[misc]
@@ -163,9 +275,11 @@ __all__ = [
     "ProgressScreen",
     "ResultScreen",
     "ReversibleMosaicApp",
-    "SelfTestScreen",
     "TutorialScreen",
 ]
+
+if SHOW_STAGE0_SELF_TEST:
+    __all__.append("SelfTestScreen")
 
 
 class ReversibleMosaicApp(App):  # type: ignore[misc]
@@ -277,18 +391,18 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
         if self._coordinator is not None:
             self._coordinator.cancel()
 
-    def copy_share_code_to_clipboard(self, share_code_line: str) -> None:
+    def copy_share_code_to_clipboard(self, share_code_line: str) -> bool:
         """Copy ``share_code_line`` via the platform clipboard gateway.
 
         On Android 13+ the ``ClipDescription`` is flagged sensitive so the
         system UI redacts it in the copy-preview toast (FR-ENC-007).
         """
-        gateway = self._clipboard_gateway_instance()
         try:
-            gateway.copy_sensitive(share_code_line)
+            gateway = self._clipboard_gateway_instance()
+            return bool(gateway.copy_sensitive(share_code_line))
         except Exception:
             # Clipboard is decorative; never crash the flow.
-            return
+            return False
 
     # -- coordinator callbacks (already scheduled on the main thread) -------
 
@@ -437,10 +551,11 @@ def _build_clipboard_gateway() -> Any:
 class _DesktopKivyClipboardGateway:
     """PC developer aid — copies text via Kivy's clipboard backend."""
 
-    def copy_sensitive(self, text: str) -> None:
+    def copy_sensitive(self, text: str) -> bool:
         try:
             from kivy.core.clipboard import Clipboard
 
             Clipboard.copy(text)
+            return True
         except Exception:
-            return
+            return False

@@ -401,11 +401,12 @@ class AndroidClipboardGateway:
         if not is_available():
             raise RuntimeError("AndroidClipboardGateway requires PyJNIus (Android only)")
 
-    def copy_sensitive(self, text: str) -> None:
+    def copy_sensitive(self, text: str) -> bool:
         """Copy ``text`` and mark it sensitive if the OS supports it.
 
-        Any failure is swallowed — clipboard is a best-effort convenience and
-        must never crash the surrounding user flow.
+        Returns whether the primary clipboard was actually updated. Failures
+        remain non-fatal, but callers can now avoid claiming a failed copy
+        succeeded.
         """
         try:
             Context = _autoclass("android.content.Context")
@@ -415,10 +416,10 @@ class AndroidClipboardGateway:
 
             activity = PythonActivity.mActivity
             if activity is None:
-                return
+                return False
             manager = activity.getSystemService(Context.CLIPBOARD_SERVICE)
             if manager is None:
-                return
+                return False
             clip = ClipData.newPlainText(String(_CLIP_LABEL), String(text))
 
             if _api_level() >= 33:
@@ -435,8 +436,9 @@ class AndroidClipboardGateway:
                     pass
 
             manager.setPrimaryClip(clip)
+            return True
         except Exception:
-            return
+            return False
 
 
 __all__ = [
