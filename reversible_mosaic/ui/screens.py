@@ -17,6 +17,7 @@ from typing import Any
 try:
     from kivy.app import App
     from kivy.clock import Clock
+    from kivy.graphics import Color, Line, RoundedRectangle
     from kivy.metrics import dp
     from kivy.properties import StringProperty
     from kivy.uix.boxlayout import BoxLayout
@@ -52,6 +53,77 @@ def _round_label(rounds: int) -> str:
     return f"{rounds} 轮"
 
 
+def _spinner_style(spinner: Spinner) -> None:
+    spinner.background_normal = ""
+    spinner.background_down = ""
+    spinner.background_color = (0, 0, 0, 1)
+    spinner.color = (1, 1, 1, 1)
+    spinner.border = (0, 0, 0, 0)
+
+
+def _spinner_option_style(option: Button) -> None:
+    option.background_normal = ""
+    option.background_down = ""
+    option.background_color = (0, 0, 0, 1)
+    option.color = (1, 1, 1, 1)
+    option.border = (0, 0, 0, 0)
+
+
+def _result_button_style(button: Button) -> None:
+    """Apply the white-panel action style without changing global buttons."""
+    button.color = (0, 0, 0, 1)
+    button.background_normal = ""
+    button.background_down = ""
+    button.background_disabled_normal = ""
+    button.background_disabled_down = ""
+    button.background_color = (0, 0, 0, 0)
+    button.border = (0, 0, 0, 0)
+    with button.canvas.before:
+        fill_color = Color(1, 1, 1, 1)
+        fill = RoundedRectangle(radius=[dp(8)])
+        border_color = Color(0, 0, 0, 1)
+        outline = Line(rounded_rectangle=(0, 0, 0, 0, dp(8)), width=dp(1))
+
+    def _sync_style(*_args: Any) -> None:
+        if button.disabled:
+            fill_color.rgba = (0.9, 0.9, 0.9, 1)
+            border_color.rgba = (0.55, 0.55, 0.55, 1)
+            button.color = (0.45, 0.45, 0.45, 1)
+        else:
+            fill_color.rgba = (0.92, 0.92, 0.92, 1) if button.state == "down" else (1, 1, 1, 1)
+            border_color.rgba = (0, 0, 0, 1)
+            button.color = (0, 0, 0, 1)
+        fill.pos = button.pos
+        fill.size = button.size
+        outline.rounded_rectangle = (*button.pos, *button.size, dp(8))
+
+    button.bind(pos=_sync_style, size=_sync_style, state=_sync_style, disabled=_sync_style)
+    _sync_style()
+
+
+def _result_button(label: str) -> Button:
+    button = Button(text=label)
+    _result_button_style(button)
+    return button
+
+
+def _popup_style(popup: Popup) -> None:
+    """Keep result-flow confirmation popups aligned with the white UI."""
+    popup.background = ""
+    popup.background_color = (1, 1, 1, 1)
+    popup.title_color = (0, 0, 0, 1)
+    popup.separator_color = (0, 0, 0, 1)
+
+
+def _force_text_input_style(widget: TextInput) -> None:
+    widget.foreground_color = (0, 0, 0, 1)
+    widget.cursor_color = (0, 0, 0, 1)
+    widget.selection_color = (0.75, 0.75, 0.75, 1)
+    widget.background_color = (1, 1, 1, 1)
+    widget.background_active = ""
+    widget.background_normal = ""
+
+
 def _label_row(text: str) -> Label:
     return Label(
         text=text,
@@ -81,6 +153,18 @@ def _hint_lines(hint: InputHint) -> str:
     else:
         lines.append("元数据: 无 (可能不是本 App 输出)")
     return "\n".join(lines)
+
+
+class _BlackTextInput(TextInput):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        _force_text_input_style(self)
+
+    def on_foreground_color(self, *_args: Any) -> None:
+        _force_text_input_style(self)
+
+    def on_background_color(self, *_args: Any) -> None:
+        _force_text_input_style(self)
 
 
 class _EncodeDecodeBase(Screen):  # type: ignore[misc]
@@ -129,18 +213,19 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
 
         self._append_operation_specific(root)
 
-        root.add_widget(_label_row("轮数"))
+        root.add_widget(_label_row("轮数（轮数越多，打码效果越好）"))
         self._rounds_spinner = Spinner(
             text=_round_label(DEFAULT_ROUNDS),
             values=_ROUND_LABELS,
             size_hint_y=None,
             height=dp(44),
         )
+        _spinner_style(self._rounds_spinner)
         self._rounds_spinner.bind(text=lambda _s, _val: self._sync_form())
         root.add_widget(self._rounds_spinner)
 
         root.add_widget(_label_row("分享代码 (留空使用默认 500000)"))
-        self._share_code_input = TextInput(
+        self._share_code_input = _BlackTextInput(
             text="",
             multiline=False,
             font_size=dp(18),
@@ -302,7 +387,7 @@ class DecodeScreen(_EncodeDecodeBase):
             for descriptor in supported_versions()
         ]
         if not options:
-            options = ["V1 (未发布)"]
+            options = ["V1 (2026-8-22)"]
         self._version_spinner = Spinner(
             text=options[0],
             values=options,
@@ -507,11 +592,13 @@ class ResultScreen(Screen):  # type: ignore[misc]
         primary_actions = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
         )
-        self._save_button = Button(text="保存到相册")
+        self._save_button = _result_button("保存到相册")
         self._save_button.bind(on_release=lambda _btn: self._on_save())
-        self._view_button = Button(text="查看", disabled=True)
+        self._view_button = _result_button("查看")
+        self._view_button.disabled = True
         self._view_button.bind(on_release=lambda _btn: self._on_view())
-        self._share_button = Button(text="分享", disabled=True)
+        self._share_button = _result_button("分享")
+        self._share_button.disabled = True
         self._share_button.bind(on_release=lambda _btn: self._on_share())
         primary_actions.add_widget(self._save_button)
         primary_actions.add_widget(self._view_button)
@@ -521,9 +608,9 @@ class ResultScreen(Screen):  # type: ignore[misc]
         secondary_actions = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
         )
-        copy_btn = Button(text="复制分享代码")
+        copy_btn = _result_button("复制分享代码")
         copy_btn.bind(on_release=lambda _btn: self._on_copy_share_code())
-        self._back_button = Button(text="返回首页")
+        self._back_button = _result_button("返回首页")
         self._back_button.bind(on_release=lambda _btn: self._on_back())
         secondary_actions.add_widget(copy_btn)
         secondary_actions.add_widget(self._back_button)
@@ -638,12 +725,13 @@ class ResultScreen(Screen):  # type: ignore[misc]
         buttons = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
         )
-        cancel = Button(text="取消")
-        proceed = Button(text="继续分享")
+        cancel = _result_button("取消")
+        proceed = _result_button("继续分享")
         buttons.add_widget(cancel)
         buttons.add_widget(proceed)
         content.add_widget(buttons)
         popup = Popup(title="分享提示", content=content, size_hint=(0.85, 0.5), auto_dismiss=False)
+        _popup_style(popup)
         cancel.bind(on_release=lambda _btn: popup.dismiss())
 
         def _confirm(_btn: Button) -> None:
@@ -662,8 +750,11 @@ class ResultScreen(Screen):  # type: ignore[misc]
         snapshot = self._current_snapshot
         if snapshot is None or snapshot.operation != "encrypted":
             return
-        app.copy_share_code_to_clipboard(snapshot.share_code_display)
-        self._save_status_label.text = "已复制到剪贴板 (其他软件可能读取剪贴板,请及时清除)。"
+        copied = bool(app.copy_share_code_to_clipboard(snapshot.share_code_display))
+        if copied:
+            self._save_status_label.text = "已复制到剪贴板 (其他软件可能读取剪贴板,请及时清除)。"
+        else:
+            self._save_status_label.text = "复制失败，请检查系统剪贴板后重试。"
 
     def _on_back(self) -> None:
         snapshot = self._current_snapshot
@@ -689,8 +780,8 @@ class ResultScreen(Screen):  # type: ignore[misc]
         buttons = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
         )
-        cancel = Button(text="继续保存")
-        proceed = Button(text="仍然离开")
+        cancel = _result_button("继续保存")
+        proceed = _result_button("仍然离开")
         buttons.add_widget(cancel)
         buttons.add_widget(proceed)
         content.add_widget(buttons)
@@ -700,6 +791,7 @@ class ResultScreen(Screen):  # type: ignore[misc]
             size_hint=(0.85, 0.5),
             auto_dismiss=False,
         )
+        _popup_style(popup)
         cancel.bind(on_release=lambda _btn: popup.dismiss())
 
         def _confirm(_btn: Button) -> None:

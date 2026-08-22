@@ -94,8 +94,33 @@ _KV = r"""
             size: self.size
             radius: [dp(12)]
 
+<Spinner>:
+    color: 1, 1, 1, 1
+    background_normal: ""
+    background_down: ""
+    background_color: 0, 0, 0, 1
+    canvas.after:
+        Color:
+            rgba: 1, 1, 1, 1
+        Triangle:
+            points: [self.right - dp(20), self.center_y + dp(4), self.right - dp(10), self.center_y + dp(4), self.right - dp(15), self.center_y - dp(4)]
+
+<SpinnerOption>:
+    background_normal: ""
+    background_down: ""
+    background_color: 0, 0, 0, 1
+    color: 1, 1, 1, 1
+    border: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
 <TextInput>:
     foreground_color: 0, 0, 0, 1
+    hint_text_color: 0.45, 0.45, 0.45, 1
     background_normal: ""
     background_active: ""
     background_color: 1, 1, 1, 1
@@ -115,12 +140,9 @@ _KV = r"""
             pos: self.x + dp(1), self.y + dp(1)
             size: self.width - dp(2), self.height - dp(2)
             radius: [dp(7)]
+        Color:
+            rgba: self.disabled_foreground_color if self.disabled else (self.hint_text_color if not self.text else self.foreground_color)
 
-<Spinner>:
-    color: 1, 1, 1, 1
-    background_normal: ""
-    background_down: ""
-    background_color: 0, 0, 0, 1
 
 <HomeScreen>:
     name: "home"
@@ -137,7 +159,7 @@ _KV = r"""
             valign: "middle"
             text_size: self.size
         Widget:
-            size_hint_y: 0.54
+            size_hint_y: 0.618
         AnchorLayout:
             size_hint_y: None
             height: dp(54)
@@ -172,7 +194,7 @@ _KV = r"""
                 height: dp(54)
                 on_release: app.root.current = "tutorial"
         Widget:
-            size_hint_y: 0.46
+            size_hint_y: 0.30
         {self_test_button}
 
 <TutorialScreen>:
@@ -369,18 +391,18 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
         if self._coordinator is not None:
             self._coordinator.cancel()
 
-    def copy_share_code_to_clipboard(self, share_code_line: str) -> None:
+    def copy_share_code_to_clipboard(self, share_code_line: str) -> bool:
         """Copy ``share_code_line`` via the platform clipboard gateway.
 
         On Android 13+ the ``ClipDescription`` is flagged sensitive so the
         system UI redacts it in the copy-preview toast (FR-ENC-007).
         """
-        gateway = self._clipboard_gateway_instance()
         try:
-            gateway.copy_sensitive(share_code_line)
+            gateway = self._clipboard_gateway_instance()
+            return bool(gateway.copy_sensitive(share_code_line))
         except Exception:
             # Clipboard is decorative; never crash the flow.
-            return
+            return False
 
     # -- coordinator callbacks (already scheduled on the main thread) -------
 
@@ -529,10 +551,11 @@ def _build_clipboard_gateway() -> Any:
 class _DesktopKivyClipboardGateway:
     """PC developer aid — copies text via Kivy's clipboard backend."""
 
-    def copy_sensitive(self, text: str) -> None:
+    def copy_sensitive(self, text: str) -> bool:
         try:
             from kivy.core.clipboard import Clipboard
 
             Clipboard.copy(text)
+            return True
         except Exception:
-            return
+            return False

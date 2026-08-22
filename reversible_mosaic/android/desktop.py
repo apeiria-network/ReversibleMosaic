@@ -40,5 +40,5 @@ class DesktopOutputGateway:
 
 
 class DesktopClipboardGateway:
-    def copy_sensitive(self, text: str) -> None:
-        return None
+    def copy_sensitive(self, text: str) -> bool:
+        return True
