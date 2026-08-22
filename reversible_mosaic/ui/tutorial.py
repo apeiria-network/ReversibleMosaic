@@ -9,17 +9,23 @@ document links inside the app.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 try:
-    from kivy.graphics import Color, RoundedRectangle
+    from kivy.clock import Clock
+    from kivy.graphics import Color, Line, RoundedRectangle
     from kivy.metrics import dp
+    from kivy.uix.behaviors import ButtonBehavior
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
+    from kivy.uix.floatlayout import FloatLayout
     from kivy.uix.image import Image
     from kivy.uix.label import Label
+    from kivy.uix.modalview import ModalView
+    from kivy.uix.scatter import Scatter
     from kivy.uix.screenmanager import Screen
     from kivy.uix.scrollview import ScrollView
 except ImportError as exc:  # pragma: no cover - matches the application dependency boundary
@@ -35,6 +41,138 @@ TUTORIAL_IMAGE_FILENAMES: tuple[str, ...] = (
     "after-restored.png",
 )
 
+
+class _TutorialImageButton(ButtonBehavior, Image):  # type: ignore[misc]
+    """A tutorial image that opens a larger, gesture-enabled preview."""
+
+    def __init__(self, *, on_activate: Callable[[], object], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._on_activate = on_activate
+        with self.canvas.after:
+            self._border_color = Color(0, 0, 0, 1)
+            self._border = Line(rectangle=(0, 0, 0, 0), width=dp(1))
+        self.bind(pos=self._sync_border, size=self._sync_border)
+        self._sync_border()
+
+    def _sync_border(self, *_args: object) -> None:
+        self._border.rectangle = (*self.pos, *self.size)
+
+    def on_release(self) -> None:
+        self._on_activate()
+
+
+class _PreviewScatter(Scatter):  # type: ignore[misc]
+    """Scatter that closes the modal only after an independent light tap."""
+
+    def __init__(self, *, on_tap: Callable[[], None], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._on_tap = on_tap
+        self._touch_starts: dict[int, tuple[float, float]] = {}
+        self._moved = False
+        self._multi_touch = False
+        self._gesture_active = False
+
+    def _begin_interaction(self, touch_id: int, position: tuple[float, float]) -> None:
+        """Record one pointer joining the current interaction session."""
+        if not self._gesture_active:
+            self._touch_starts.clear()
+            self._moved = False
+            self._multi_touch = False
+            self._gesture_active = True
+        elif self._touch_starts:
+            self._multi_touch = True
+        self._touch_starts[touch_id] = position
+
+    def _move_interaction(self, touch_id: int, position: tuple[float, float]) -> None:
+        """Disqualify the session from tap-to-close after a visible drag."""
+        start = self._touch_starts.get(touch_id)
+        if start is None:
+            return
+        threshold = dp(8)
+        if abs(position[0] - start[0]) > threshold or abs(position[1] - start[1]) > threshold:
+            self._moved = True
+
+    def _finish_interaction(self, touch_id: int) -> bool:
+        """Finish a pointer and report whether the entire session was a tap."""
+        if touch_id not in self._touch_starts:
+            return False
+        self._touch_starts.pop(touch_id)
+        if self._touch_starts:
+            return False
+
+        should_close = self._gesture_active and not self._moved and not self._multi_touch
+        self._gesture_active = False
+        self._moved = False
+        self._multi_touch = False
+        return should_close
+
+    def on_touch_down(self, touch: Any) -> bool:
+        if not self.collide_point(*touch.pos):
+            return False
+        self._begin_interaction(id(touch), touch.pos)
+        return bool(super().on_touch_down(touch))
+
+    def on_touch_move(self, touch: Any) -> bool:
+        self._move_interaction(id(touch), touch.pos)
+        return bool(super().on_touch_move(touch))
+
+    def on_touch_up(self, touch: Any) -> bool:
+        handled = bool(super().on_touch_up(touch))
+        if self._finish_interaction(id(touch)):
+            Clock.schedule_once(lambda _dt: self._on_tap(), 0)
+        return handled
+
+
+class _TutorialImagePreview(ModalView):  # type: ignore[misc]
+    """Near-full-screen preview with pan and pinch-to-zoom support."""
+
+    def __init__(self, *, source: str, **kwargs: Any) -> None:
+        super().__init__(
+            auto_dismiss=False,
+            background_color=(0.02, 0.02, 0.02, 0.96),
+            size_hint=(1, 1),
+            **kwargs,
+        )
+        self._build_content(source)
+
+    def _build_content(self, source: str) -> None:
+        root = FloatLayout()
+        scatter = _PreviewScatter(
+            on_tap=self.dismiss,
+            do_rotation=False,
+            do_scale=True,
+            do_translation=True,
+            scale_min=1.0,
+            scale_max=5.0,
+            size_hint=(None, None),
+        )
+        image = Image(source=source, fit_mode="contain", size_hint=(None, None))
+        scatter.add_widget(image)
+        root.add_widget(scatter)
+
+        def _sync_image(*_args: object) -> None:
+            if image.texture is None or image.texture.width <= 0:
+                return
+            available_width = max(dp(1), self.width - dp(32))
+            available_height = max(dp(1), self.height - dp(32))
+            ratio = min(
+                available_width / image.texture.width,
+                available_height / image.texture.height,
+            )
+            image.size = (
+                image.texture.width * ratio,
+                image.texture.height * ratio,
+            )
+            scatter.size = image.size
+            scatter.pos = (
+                (self.width - scatter.width) / 2,
+                (self.height - scatter.height) / 2,
+            )
+
+        image.bind(texture=_sync_image)
+        self.bind(size=_sync_image)
+        _sync_image()
+        self.add_widget(root)
 
 @dataclass(frozen=True)
 class TutorialBlock:
@@ -300,24 +438,38 @@ class TutorialScreen(Screen):  # type: ignore[misc]
     def _image_block(self, caption: str, filename: str) -> BoxLayout:
         wrapper = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(6))
         caption_label = self._text_label(caption, font_size=dp(14), bold=True)
-        image = Image(
-            source=str(TUTORIAL_ASSET_DIR / filename),
+        source = str(TUTORIAL_ASSET_DIR / filename)
+        image = _TutorialImageButton(
+            on_activate=lambda: self._show_image_preview(source),
+            source=source,
             fit_mode="contain",
             size_hint_y=None,
         )
+        hint_label = self._text_label(
+            "轻触图片可放大预览",
+            font_size=dp(13),
+        )
+        hint_label.color = (0.3, 0.3, 0.3, 1)
         wrapper.add_widget(caption_label)
         wrapper.add_widget(image)
+        wrapper.add_widget(hint_label)
 
         def _sync_height(*_args: object) -> None:
             texture = image.texture
             if texture is None or texture.width <= 0:
                 return
             image.height = image.width * texture.height / texture.width
-            wrapper.height = caption_label.height + image.height + dp(6)
+            wrapper.height = caption_label.height + image.height + hint_label.height + dp(12)
 
         image.bind(width=_sync_height, texture=_sync_height)
         caption_label.bind(texture_size=_sync_height)
+        hint_label.bind(texture_size=_sync_height)
         return wrapper
+
+    def _show_image_preview(self, source: str) -> _TutorialImagePreview:
+        preview = _TutorialImagePreview(source=source)
+        preview.open()
+        return preview
 
     def _go_home(self) -> None:
         if self.manager is not None:

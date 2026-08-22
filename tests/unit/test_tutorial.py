@@ -6,6 +6,7 @@ import pytest
 
 pytest.importorskip("kivy", reason="tutorial screen requires kivy from .[app]")
 
+from kivy.metrics import dp
 from kivy.uix.button import Button
 from kivy.uix.image import Image
 from kivy.uix.scrollview import ScrollView
@@ -15,6 +16,9 @@ from reversible_mosaic.ui.tutorial import (
     TUTORIAL_BLOCKS,
     TUTORIAL_IMAGE_FILENAMES,
     TutorialScreen,
+    _PreviewScatter,
+    _TutorialImageButton,
+    _TutorialImagePreview,
 )
 
 
@@ -68,3 +72,44 @@ def test_tutorial_screen_has_scrollable_content_images_and_return_button() -> No
     assert any(
         isinstance(widget, Button) and widget.text == "返回首页" for widget in descendants
     )
+    assert sum(isinstance(widget, _TutorialImageButton) for widget in descendants) == len(
+        TUTORIAL_IMAGE_FILENAMES
+    )
+
+
+def test_tutorial_image_preview_supports_clean_zoom_pan_layout() -> None:
+    preview = _TutorialImagePreview(
+        source=str(TUTORIAL_ASSET_DIR / TUTORIAL_IMAGE_FILENAMES[0]),
+    )
+    descendants = list(preview.walk())
+    scatter = next(widget for widget in descendants if isinstance(widget, _PreviewScatter))
+
+    assert scatter.do_scale is True
+    assert scatter.do_translation == (True, True)
+    assert scatter.do_rotation is False
+    assert scatter.scale_min == 1.0
+    assert scatter.scale_max == 5.0
+    assert not any(isinstance(widget, Button) and widget.text == "关闭" for widget in descendants)
+    assert all("双指拖动/缩放" not in getattr(widget, "text", "") for widget in descendants)
+    preview.dismiss()
+
+
+def test_preview_tap_to_close_only_accepts_a_fresh_stationary_single_touch() -> None:
+    scatter = _PreviewScatter(on_tap=lambda: None)
+
+    scatter._begin_interaction(1, (100, 100))
+    assert scatter._finish_interaction(1) is True
+
+    scatter._begin_interaction(2, (100, 100))
+    scatter._move_interaction(2, (100 + dp(9), 100))
+    assert scatter._finish_interaction(2) is False
+
+    scatter._begin_interaction(3, (100, 100))
+    scatter._begin_interaction(4, (120, 100))
+    scatter._move_interaction(3, (105, 100))
+    scatter._move_interaction(4, (125, 100))
+    assert scatter._finish_interaction(4) is False
+    assert scatter._finish_interaction(3) is False
+
+    scatter._begin_interaction(5, (100, 100))
+    assert scatter._finish_interaction(5) is True
