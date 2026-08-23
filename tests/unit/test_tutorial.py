@@ -61,7 +61,14 @@ def test_tutorial_share_code_guidance_matches_default_flow() -> None:
     assert "随机 6 位" in text
 
 
-def test_tutorial_screen_has_scrollable_content_images_and_return_button() -> None:
+def test_tutorial_excludes_removed_image_sharing_feature() -> None:
+    text = _tutorial_text()
+
+    assert "Android 系统分享功能" not in text
+    assert "调用 Android 系统分享" not in text
+    assert "保存到手机" in text
+    assert "可信渠道" in text
+
     screen = TutorialScreen(name="tutorial")
     descendants = list(screen.walk())
 

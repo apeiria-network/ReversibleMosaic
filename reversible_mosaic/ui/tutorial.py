@@ -235,7 +235,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "3. 分享代码会自动填入，通常不需要修改（默认值为 500000）。如需使用其他代码，可以自行修改，"
         "或点击 [b]随机 6 位[/b] 生成新代码；\n"
         "4. 点击 [b]开始打码[/b]；\n"
-        "5. 处理完成后，预览结果并保存到手机，或使用 Android 系统分享功能。",
+        "5. 处理完成后，预览结果并保存到手机。",
     ),
     TutorialBlock(
         "note",
@@ -267,7 +267,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
     TutorialBlock("subheading", "4. 查看恢复结果"),
     TutorialBlock("paragraph", "恢复完成后，APP 会显示恢复出的图片："),
     TutorialBlock("image", "恢复成功后的页面", "after-restored.png"),
-    TutorialBlock("paragraph", "确认结果无误后，可以将图片保存到手机，或使用系统分享功能。"),
+    TutorialBlock("paragraph", "确认结果无误后，可以将图片保存到手机；也可以使用手机上其他应用自行传递已保存的图片和分享代码。"),
     TutorialBlock("heading", "APP 功能"),
     TutorialBlock("subheading", "图片处理"),
     TutorialBlock(
@@ -276,7 +276,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "• 支持 RGB 和 RGBA 图片；\n"
         "• PNG 结果使用无损格式保存；\n"
         "• RGBA 图片的透明度会随像素一起保留；\n"
-        "• 可以保存结果并调用 Android 系统分享。",
+        "• 可以保存结果并在 APP 内查看。",
     ),
     TutorialBlock("subheading", "自动读取算法版本和轮次信息"),
     TutorialBlock(
