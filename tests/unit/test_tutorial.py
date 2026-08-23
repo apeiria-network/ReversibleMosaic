@@ -16,6 +16,7 @@ from reversible_mosaic.ui.tutorial import (
     TUTORIAL_BLOCKS,
     TUTORIAL_IMAGE_FILENAMES,
     TutorialScreen,
+    _PreviewGestureLayer,
     _PreviewScatter,
     _TutorialImageButton,
     _TutorialImagePreview,
@@ -90,6 +91,10 @@ def test_tutorial_image_preview_supports_clean_zoom_pan_layout() -> None:
     )
     descendants = list(preview.walk())
     scatter = next(widget for widget in descendants if isinstance(widget, _PreviewScatter))
+    gesture_layer = next(
+        widget for widget in descendants if isinstance(widget, _PreviewGestureLayer)
+    )
+    assert callable(gesture_layer._on_tap)
 
     assert scatter.do_scale is True
     assert scatter.do_translation == (True, True)
@@ -101,7 +106,25 @@ def test_tutorial_image_preview_supports_clean_zoom_pan_layout() -> None:
     preview.dismiss()
 
 
-def test_preview_tap_to_close_only_accepts_a_fresh_stationary_single_touch() -> None:
+    preview.dismiss()
+
+
+def test_preview_gesture_layer_dismisses_screen_tap_but_not_drag_or_pinch() -> None:
+    layer = _PreviewGestureLayer(on_tap=lambda: None)
+
+    layer._begin_interaction(1, (5, 5))
+    assert layer._finish_interaction(1) is True
+
+    layer._begin_interaction(2, (5, 5))
+    layer._move_interaction(2, (5 + dp(9), 5))
+    assert layer._finish_interaction(2) is False
+
+    layer._begin_interaction(3, (5, 5))
+    layer._begin_interaction(4, (10, 10))
+    assert layer._finish_interaction(4) is False
+    assert layer._finish_interaction(3) is False
+
+
     scatter = _PreviewScatter(on_tap=lambda: None)
 
     scatter._begin_interaction(1, (100, 100))

@@ -6,6 +6,10 @@ import pytest
 
 pytest.importorskip("kivy")
 
+# ruff: noqa: RUF001
+
+from kivy.uix.label import Label
+
 from reversible_mosaic.ui.screens import DecodeScreen, EncodeScreen, ResultScreen
 
 
@@ -34,7 +38,44 @@ def test_decode_only_shows_wide_clear_share_code_action() -> None:
     assert [child.text for child in clear_button.parent.children] == ["清除"]
 
 
-def test_result_has_only_equal_save_and_view_actions() -> None:
+def test_encode_and_decode_group_parameters_with_extra_spacing() -> None:
+    for screen, labels in (
+        (EncodeScreen(), {"轮数（轮数越多，打码效果越好）", "分享代码 (留空使用默认 500000)"}),
+        (
+            DecodeScreen(),
+            {"算法版本", "轮数（轮数越多，打码效果越好）", "分享代码 (留空使用默认 500000)"},
+        ),
+    ):
+        parameter_labels = {
+            widget.text: widget
+            for widget in screen.walk()
+            if isinstance(widget, Label) and widget.text in labels
+        }
+
+        assert set(parameter_labels) == labels
+        for label in parameter_labels.values():
+            block = label.parent
+            assert block.orientation == "vertical"
+            assert block.padding[1] > 0
+            assert block.padding[3] > 0
+            assert block.spacing > 0
+
+
+def test_edge_swipe_returns_encode_decode_screen_home() -> None:
+    for screen in (EncodeScreen(), DecodeScreen()):
+        screen.width = 360
+
+        screen._begin_home_swipe(1, (0, 200))
+        assert screen._finish_home_swipe(1, (100, 205)) is True
+
+        screen._begin_home_swipe(2, (0, 200))
+        assert screen._finish_home_swipe(2, (20, 300)) is False
+
+        screen._begin_home_swipe(3, (0, 200))
+        screen._begin_home_swipe(4, (20, 200))
+        assert screen._finish_home_swipe(3, (80, 200)) is False
+
+
     screen = ResultScreen()
 
     save_buttons = _buttons_with_text(screen, "保存到相册")

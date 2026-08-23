@@ -5,7 +5,7 @@ content. It does not render arbitrary Markdown and it never exposes developer
 document links inside the app.
 """
 
-# ruff: noqa: RUF001
+# ruff: noqa: E501, RUF001
 
 from __future__ import annotations
 
@@ -30,6 +30,10 @@ try:
     from kivy.uix.scrollview import ScrollView
 except ImportError as exc:  # pragma: no cover - matches the application dependency boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
+
+from reversible_mosaic.ui.screens import _HomeSwipeMixin
+
+# ruff: noqa: RUF001
 
 
 TUTORIAL_ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "tutorial"
@@ -62,9 +66,9 @@ class _TutorialImageButton(ButtonBehavior, Image):  # type: ignore[misc]
 
 
 class _PreviewScatter(Scatter):  # type: ignore[misc]
-    """Scatter that closes the modal only after an independent light tap."""
+    """Scatter that optionally closes the modal after a light image tap."""
 
-    def __init__(self, *, on_tap: Callable[[], None], **kwargs: Any) -> None:
+    def __init__(self, *, on_tap: Callable[[], None] | None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._on_tap = on_tap
         self._touch_starts: dict[int, tuple[float, float]] = {}
@@ -118,9 +122,66 @@ class _PreviewScatter(Scatter):  # type: ignore[misc]
 
     def on_touch_up(self, touch: Any) -> bool:
         handled = bool(super().on_touch_up(touch))
-        if self._finish_interaction(id(touch)):
+        if self._finish_interaction(id(touch)) and self._on_tap is not None:
             Clock.schedule_once(lambda _dt: self._on_tap(), 0)
         return handled
+
+
+class _PreviewGestureLayer(FloatLayout):
+    """Observe full-screen taps while leaving Scatter gesture ownership intact."""
+
+    def __init__(self, *, on_tap: Callable[[], None], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._on_tap = on_tap
+        self._touch_starts: dict[int, tuple[float, float]] = {}
+        self._moved = False
+        self._multi_touch = False
+        self._gesture_active = False
+
+    def _begin_interaction(self, touch_id: int, position: tuple[float, float]) -> None:
+        if not self._gesture_active:
+            self._touch_starts.clear()
+            self._moved = False
+            self._multi_touch = False
+            self._gesture_active = True
+        elif self._touch_starts:
+            self._multi_touch = True
+        self._touch_starts[touch_id] = position
+
+    def _move_interaction(self, touch_id: int, position: tuple[float, float]) -> None:
+        start = self._touch_starts.get(touch_id)
+        if start is None:
+            return
+        if abs(position[0] - start[0]) > dp(8) or abs(position[1] - start[1]) > dp(8):
+            self._moved = True
+
+    def _finish_interaction(self, touch_id: int) -> bool:
+        if touch_id not in self._touch_starts:
+            return False
+        self._touch_starts.pop(touch_id)
+        if self._touch_starts:
+            return False
+        should_close = self._gesture_active and not self._moved and not self._multi_touch
+        self._gesture_active = False
+        self._moved = False
+        self._multi_touch = False
+        return should_close
+
+    def on_touch_down(self, touch: Any) -> bool:
+        self._begin_interaction(id(touch), touch.pos)
+        super().on_touch_down(touch)
+        return False
+
+    def on_touch_move(self, touch: Any) -> bool:
+        self._move_interaction(id(touch), touch.pos)
+        super().on_touch_move(touch)
+        return False
+
+    def on_touch_up(self, touch: Any) -> bool:
+        super().on_touch_up(touch)
+        if self._finish_interaction(id(touch)):
+            Clock.schedule_once(lambda _dt: self._on_tap(), 0)
+        return False
 
 
 class _TutorialImagePreview(ModalView):  # type: ignore[misc]
@@ -136,9 +197,9 @@ class _TutorialImagePreview(ModalView):  # type: ignore[misc]
         self._build_content(source)
 
     def _build_content(self, source: str) -> None:
-        root = FloatLayout()
+        root = _PreviewGestureLayer(on_tap=self.dismiss)
         scatter = _PreviewScatter(
-            on_tap=self.dismiss,
+            on_tap=None,
             do_rotation=False,
             do_scale=True,
             do_translation=True,
@@ -338,7 +399,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
 )
 
 
-class TutorialScreen(Screen):  # type: ignore[misc]
+class TutorialScreen(_HomeSwipeMixin, Screen):  # type: ignore[misc]
     """A fixed-header, scrollable presentation of the user tutorial."""
 
     def __init__(self, **kwargs: object) -> None:

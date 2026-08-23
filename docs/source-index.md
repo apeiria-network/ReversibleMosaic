@@ -48,9 +48,11 @@
     PC 退回 `desktop.DesktopOutputGateway` + `_DesktopKivyClipboardGateway`
     （Kivy Core Clipboard 兜底）。
 - **App 方法**：
-  - `on_start()`（Stage 2b）— Kivy 生命周期钩子，跑 `cleanup_orphan_pending()`
-    清 MediaStore 孤儿 pending 行。
+  - `on_start()`（Stage 2b）— Kivy 生命周期钩子，跑 `cleanup_orphan_pending()` 清 MediaStore 孤儿 pending 行，并绑定 Android 返回键处理。
   - `open_encode()` / `open_decode()` — 首页按钮的目标。
+  - `_on_keyboard(...)` — 仅处理 Android key 27：当前屏为 `encode`、`decode` 或
+    `tutorial` 且没有活动 `ModalView` 时调用该屏 `_go_home()`；其余屏交还系统处理，
+    因而不会改变进度取消或结果页确认流程。
   - `launch_pipeline(operation, form)` — 用 `output_naming.compute_output_name`
     计算 `<原名>_mosaic.png` / `_reversal_mosaic.png`（重名 `_1/_2`），
     构造 `TaskRequest`、切到 progress 屏、启动 coordinator；输出落
@@ -613,7 +615,9 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
     轮数 Spinner、分享代码 TextInput。打码页保留“随机 6 位 / 清除”；恢复页在
     v1.0.1 只显示占满该操作区的“清除”，避免无意义地随机生成恢复代码。两个页面
     都在 `TaskFormState.can_start()` 前禁用开始按钮。DecodeScreen 有算法版本 Spinner，
-    且选文件后自动从 PNG 元数据带入 version + rounds。`_on_pick` 回调
+    且选文件后自动从 PNG 元数据带入 version + rounds。算法版本、轮数、分享代码各自
+    使用共享参数块的内边距与块间距，避免表单控件相互拥挤。页面从左右边缘开始的单指
+    横向滑动会返回首页；垂直、多指及非边缘交互不触发。`_on_pick` 回调
     接受 `(cached_path, display_name)` 二元组，写入
     `form.original_display_name`（Stage 2b）。
   - `ProgressScreen` — 阶段标签、进度条（fraction 未知时 indeterminate）、
@@ -638,9 +642,16 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 - **改动指引**：
   - 加新表单字段：先在 `view_models.TaskFormState` 加字段 → 再在
     `_EncodeDecodeBase._build_widget_tree` 挂 widget → `_sync_form` 里回写。
+  - 调整参数块或边缘侧滑判定时，同步更新 `tests/unit/test_screens.py`；侧滑必须保持
+    观察式处理，不能抢占 TextInput、Spinner 等子控件的触摸事件。
   - 加 result 页新按钮：走 app 方法而不是直接摸 gateway，保持
     "worker/gateway 逻辑在 app.py，UI 只发信号 + 展示" 的分层。
   - 屏内不 import Kivy 之外的东西时可提到 `ui/view_models.py` 便于 pytest 直测。
+
+  - **改动指引**：教程图片预览的全屏手势观察器负责静止单击退出，内部 Scatter
+    只负责平移/缩放；修改触摸阈值或预览层级时同步 `tests/unit/test_tutorial.py`。
+    TutorialScreen 与打码/恢复页一样支持边缘横向侧滑返回首页，但不拦截教程内容的
+    垂直滚动。
 
 ### [`ui/__init__.py`](../reversible_mosaic/ui/__init__.py)
 - 仅 docstring `"""UI-layer helpers (view models + Kivy screens)."""`。

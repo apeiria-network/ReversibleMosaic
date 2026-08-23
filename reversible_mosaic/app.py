@@ -29,6 +29,7 @@ try:
     from kivy.core.text import LabelBase
     from kivy.core.window import Window
     from kivy.lang import Builder
+    from kivy.uix.modalview import ModalView
     from kivy.uix.screenmanager import Screen
 except ImportError as exc:  # pragma: no cover - friendly optional dependency boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
@@ -274,6 +275,7 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
 
     def on_start(self) -> None:
         """Kivy lifecycle hook — runs once the ScreenManager is live."""
+        Window.bind(on_keyboard=self._on_keyboard)
         gateway = self._output_gateway_instance()
         cleanup = getattr(gateway, "cleanup_orphan_pending", None)
         if callable(cleanup):
@@ -282,6 +284,31 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
             except Exception:
                 # Startup housekeeping must never crash the app.
                 pass
+
+    def on_stop(self) -> None:
+        Window.unbind(on_keyboard=self._on_keyboard)
+
+    def _on_keyboard(
+        self,
+        _window: Any,
+        key: int,
+        _scancode: int,
+        _codepoint: str,
+        _modifiers: list[str],
+    ) -> bool:
+        """Return selected form/tutorial pages to home on Android's back key."""
+        if key != 27 or self.root is None or any(
+            isinstance(widget, ModalView) for widget in Window.children
+        ):
+            return False
+        if self.root.current not in {"encode", "decode", "tutorial"}:
+            return False
+        screen = self.root.current_screen
+        go_home = getattr(screen, "_go_home", None)
+        if not callable(go_home):
+            return False
+        go_home()
+        return True
 
     # -- navigation helpers --------------------------------------------------
 
