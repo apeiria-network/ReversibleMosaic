@@ -64,9 +64,11 @@
     `_on_saved(handle)` 更新 `last_result.saved_handle`；失败回调
     `_on_save_failed(message)` 写 `last_result.save_error`；两者都调
     `_get_result_screen().refresh_from_app()`。
-  - `view_current_result()` / `share_current_result()`（Stage 2b）— 转发到
-    `gateway.open_for_view(saved_handle)` / `gateway.share(handle, subject)`。
-    subject 恒定为 `"ReversibleMosaic 输出"`，**不包含**分享代码。
+  - `view_current_result()` / `share_current_result()` / `share_original_current_result()`（Stage 2b / v1.0.1）—
+    转发到 `gateway.open_for_view(saved_handle)`、兼容的 `gateway.share(handle, subject)`、
+    明确的 `gateway.share_original(handle, subject)`。结果页的“原图/文件分享”只会走
+    后者；三者均要求结果已保存。分享 subject 恒定为 `"ReversibleMosaic 输出"`，
+    **不包含**分享代码。
   - `_on_progress` / `_on_completed` / `_on_failed` / `_on_cancelled` —
     coordinator 回调；这些已经在主线程上，可以直接摸 widget。
 - **改动指引**：
@@ -474,7 +476,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   - `InputGateway`：`import_to_cache(uri, cache_dir) -> Path` —— 把选中 URI
     的字节安全复制到 app 私有缓存。
   - `OutputGateway`：`publish_png(source, display_name) -> str` /
-    `open_for_view(handle)` / `share(handle, subject)`。
+    `open_for_view(handle)` / `share(handle, subject)` /
+    `share_original(handle, subject)`（v1.0.1 的明确原图/文件分享语义）。
   - `ClipboardGateway`：`copy_sensitive(text)` —— 分享码复制且尽量标"敏感"。
 - **谁用它**：`reversible_mosaic/app.py::_build_output_gateway` /
   `_build_clipboard_gateway` 里的平台选择器；`ui/screens.py` 只依赖协议。
@@ -484,7 +487,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`android/desktop.py`](../reversible_mosaic/android/desktop.py)
 - **作用**：PC 侧假实现。用 `shutil.copyfile` 做 import；
   `publish_png` 写到指定目录（重名自动 `_1/_2` 后缀）；`open_for_view` /
-  `share` / `copy_sensitive` 都是 no-op（PC 不需要）。
+  `share` / `share_original` / `copy_sensitive` 都是 no-op（PC 不需要）。
 - **导出**：`DesktopInputGateway`、`DesktopOutputGateway(output_dir)`、
   `DesktopClipboardGateway`。
 - **改动指引**：PC 端跑冒烟测试或性能扫描时用。**不要**在这里加平台特定
@@ -512,9 +515,13 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
     6. 任何一步失败都 `_safe_delete` 掉 pending 行（FR-SAVE-006 半文件保护）。
     返回 `content://media/external/images/media/<id>` URI 字符串。
   - `open_for_view(handle: str)` —— `Intent.ACTION_VIEW`。
-  - `share(handle: str, subject: str)` —— `Intent.ACTION_SEND` +
-    `EXTRA_STREAM` + `FLAG_GRANT_READ_URI_PERMISSION`；`subject` 只填 App 通用
-    标识，**绝不放分享代码**（FR-ENC-006 / FR-SAVE-004）。
+  - `share(handle: str, subject: str)`（兼容入口）与
+    `share_original(handle: str, subject: str)`（v1.0.1 明确入口）——后者以
+    `Intent.ACTION_SEND` + `EXTRA_STREAM` + `FLAG_GRANT_READ_URI_PERMISSION`
+    发送**已保存**的 MediaStore PNG URI，并用 `image/png` MIME type 和
+    “原图/文件分享” chooser；不重新编码、不创建缓存副本。接收端仍可能自行转码，
+    因此 UI 提示用户在目标应用选择文件/原图发送。`subject` 只填 App 通用标识，
+    **绝不放分享代码**（FR-ENC-006 / FR-SAVE-004）。
   - `cleanup_orphan_pending() -> int` —— App 启动时清 `IS_PENDING=1` 的孤儿行
     （FR-TASK-006 / §9.2 item 3）；只在 API 29+ 有 IS_PENDING 语义，API 26-28
     返回 0。所有失败被吞掉不阻塞启动。
@@ -614,8 +621,9 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 - **作用**：阶段 2a 引入，2b 扩展 ResultScreen 到 save/view/share 流程。
   四个生产屏：
   - `EncodeScreen` / `DecodeScreen` — 共用 `_EncodeDecodeBase`：文件选择、
-    轮数 Spinner、分享代码 TextInput + 随机 6 位 / 清除、开始按钮 disable
-    直到 `TaskFormState.can_start()`。DecodeScreen 有算法版本 Spinner，
+    轮数 Spinner、分享代码 TextInput。打码页保留“随机 6 位 / 清除”；恢复页在
+    v1.0.1 只显示占满该操作区的“清除”，避免无意义地随机生成恢复代码。两个页面
+    都在 `TaskFormState.can_start()` 前禁用开始按钮。DecodeScreen 有算法版本 Spinner，
     且选文件后自动从 PNG 元数据带入 version + rounds。`_on_pick` 回调
     接受 `(cached_path, display_name)` 二元组，写入
     `form.original_display_name`（Stage 2b）。
@@ -628,11 +636,12 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
       时降级为"返回首页"，避免失败后无出路。
   - `ResultScreen`（**Stage 2b 状态机**）——
     - **状态**：`unsaved` → `saved` / `save_error`。
-    - **按钮组**：主行 `保存到相册 / 查看 / 分享`（后两个未保存前 disabled）；
+    - **按钮组**：主行 `保存到相册 / 查看 / 原图/文件分享`（后两个未保存前 disabled）；
       副行 `复制分享代码 / 返回首页`。
     - `_on_save()` 调 `app.save_current_result()`（worker 线程走 gateway.publish_png）。
     - `_on_view()` / `_on_share()` 调对应 app 方法；分享前必弹
-      `_show_share_reminder`（FR-SAVE-005 "文件/原图 发送" 提示）。
+      `_show_share_reminder`（FR-SAVE-005 “文件/原图发送” 提示），并由
+      `_on_share()` 调用 `share_original_current_result()`。
     - `_on_back()` 未保存时弹 `_show_unsaved_confirmation`（FR-SAVE-007）。
     - `refresh_from_app()` 供 app 在保存成功/失败后调用，刷新按钮 disable 状态。
 - **状态存放**：屏本身无长期状态；`app.encrypted_form_state` /

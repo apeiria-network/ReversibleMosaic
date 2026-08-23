@@ -38,6 +38,9 @@ class DesktopOutputGateway:
     def share(self, handle: str, subject: str) -> None:
         return None
 
+    def share_original(self, handle: str, subject: str) -> None:
+        return None
+
 
 class DesktopClipboardGateway:
     def copy_sensitive(self, text: str) -> bool:

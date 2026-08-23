@@ -22,6 +22,8 @@ class OutputGateway(Protocol):
 
     def share(self, handle: str, subject: str) -> None: ...
 
+    def share_original(self, handle: str, subject: str) -> None: ...
+
 
 class ClipboardGateway(Protocol):
     """Copies a share code and flags it as sensitive if the OS supports it."""

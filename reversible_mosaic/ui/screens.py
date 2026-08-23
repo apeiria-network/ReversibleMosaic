@@ -239,10 +239,15 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
         code_actions = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(40), spacing=dp(6)
         )
-        code_actions.add_widget(
-            _mini_button("随机 6 位", lambda: self._on_randomize_share_code())
-        )
-        code_actions.add_widget(_mini_button("清除", lambda: self._on_clear_share_code()))
+        if self.operation == "encrypted":
+            code_actions.add_widget(
+                _mini_button("随机 6 位", lambda: self._on_randomize_share_code())
+            )
+            code_actions.add_widget(_mini_button("清除", lambda: self._on_clear_share_code()))
+        else:
+            clear_button = _mini_button("清除", lambda: self._on_clear_share_code())
+            clear_button.size_hint_x = 2
+            code_actions.add_widget(clear_button)
         root.add_widget(code_actions)
 
         self._error_label = Label(
@@ -597,7 +602,7 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._view_button = _result_button("查看")
         self._view_button.disabled = True
         self._view_button.bind(on_release=lambda _btn: self._on_view())
-        self._share_button = _result_button("分享")
+        self._share_button = _result_button("原图/文件分享")
         self._share_button.disabled = True
         self._share_button.bind(on_release=lambda _btn: self._on_share())
         primary_actions.add_widget(self._save_button)
@@ -707,7 +712,7 @@ class ResultScreen(Screen):  # type: ignore[misc]
         if app is None:
             return
         # FR-SAVE-005 reminder: platform manipulation kills recoverability.
-        self._show_share_reminder(lambda: app.share_current_result())
+        self._show_share_reminder(lambda: app.share_original_current_result())
 
     def _show_share_reminder(self, on_confirm: Callable[[], None]) -> None:
         content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))

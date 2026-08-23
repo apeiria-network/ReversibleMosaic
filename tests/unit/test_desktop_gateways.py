@@ -60,6 +60,7 @@ def test_desktop_view_and_share_are_noops(tmp_path: Path) -> None:
     # These must not raise on the PC path; they intentionally return None.
     gateway.open_for_view("anything")
     gateway.share("anything", "subject")
+    gateway.share_original("anything", "subject")
 
 
 def test_desktop_input_imports_to_cache(tmp_path: Path) -> None:

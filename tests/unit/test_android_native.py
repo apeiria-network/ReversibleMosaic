@@ -20,7 +20,7 @@ import io
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -238,8 +238,126 @@ def test_cleanup_orphan_pending_returns_zero_on_null_cursor() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Share intent: no share code leakage
+# Share intent: saved-PNG file handoff and privacy boundary
 # ---------------------------------------------------------------------------
+
+
+def test_share_original_delegates_to_file_share_action() -> None:
+    gateway = native.AndroidOutputGateway.__new__(native.AndroidOutputGateway)
+
+    with patch.object(native, "_start_activity") as start_activity:
+        gateway.share_original("content://media/output/42", "ReversibleMosaic 输出")
+
+    start_activity.assert_called_once_with(
+        "content://media/output/42",
+        action="share_original",
+        subject="ReversibleMosaic 输出",
+    )
+
+
+def test_legacy_share_delegates_to_original_file_share() -> None:
+    gateway = native.AndroidOutputGateway.__new__(native.AndroidOutputGateway)
+
+    with patch.object(gateway, "share_original") as share_original:
+        gateway.share("content://media/output/42", "ReversibleMosaic 输出")
+
+    share_original.assert_called_once_with("content://media/output/42", "ReversibleMosaic 输出")
+
+
+def test_share_original_intent_sends_saved_png_uri_with_read_grant() -> None:
+    intent = MagicMock(name="send_intent")
+    chooser = MagicMock(name="chooser")
+    Intent = MagicMock(name="Intent")
+    Intent.ACTION_SEND = "android.intent.action.SEND"
+    Intent.ACTION_VIEW = "android.intent.action.VIEW"
+    Intent.EXTRA_STREAM = "android.intent.extra.STREAM"
+    Intent.EXTRA_SUBJECT = "android.intent.extra.SUBJECT"
+    Intent.FLAG_GRANT_READ_URI_PERMISSION = 1
+    Intent.FLAG_ACTIVITY_NEW_TASK = 2
+    Intent.return_value = intent
+    Intent.createChooser.return_value = chooser
+    Uri = MagicMock(name="Uri")
+    uri = MagicMock(name="saved_media_store_uri")
+    Uri.parse.return_value = uri
+    activity = MagicMock(name="activity")
+
+    with (
+        patch.object(native, "_autoclass", side_effect=lambda name: {
+            "android.content.Intent": Intent,
+            "android.net.Uri": Uri,
+            "java.lang.String": str,
+        }[name]),
+        patch.object(native, "_python_activity", return_value=activity),
+        patch.object(native, "_cast", side_effect=lambda _target, value: value) as cast_value,
+    ):
+        native._start_activity(
+            "content://media/external/images/media/42",
+            action="share_original",
+            subject="ReversibleMosaic 输出",
+        )
+
+    Uri.parse.assert_called_once_with("content://media/external/images/media/42")
+    Intent.assert_called_once_with(Intent.ACTION_SEND)
+    intent.setType.assert_called_once_with("image/png")
+    intent.putExtra.assert_has_calls(
+        [
+            call(Intent.EXTRA_STREAM, uri),
+            call(Intent.EXTRA_SUBJECT, "ReversibleMosaic 输出"),
+        ]
+    )
+    intent.addFlags.assert_has_calls(
+        [
+            call(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+            call(Intent.FLAG_ACTIVITY_NEW_TASK),
+        ]
+    )
+    cast_value.assert_has_calls(
+        [
+            call("android.os.Parcelable", uri),
+            call("java.lang.CharSequence", "ReversibleMosaic 输出"),
+            call("java.lang.CharSequence", "原图/文件分享"),
+        ]
+    )
+    Intent.createChooser.assert_called_once_with(intent, "原图/文件分享")
+    chooser.addFlags.assert_called_once_with(Intent.FLAG_ACTIVITY_NEW_TASK)
+    activity.startActivity.assert_called_once_with(chooser)
+
+
+def test_legacy_share_uses_legacy_chooser_title() -> None:
+    intent = MagicMock(name="send_intent")
+    chooser = MagicMock(name="chooser")
+    Intent = MagicMock(name="Intent")
+    Intent.ACTION_SEND = "android.intent.action.SEND"
+    Intent.EXTRA_STREAM = "android.intent.extra.STREAM"
+    Intent.EXTRA_SUBJECT = "android.intent.extra.SUBJECT"
+    Intent.FLAG_GRANT_READ_URI_PERMISSION = 1
+    Intent.FLAG_ACTIVITY_NEW_TASK = 2
+    Intent.return_value = intent
+    Intent.createChooser.return_value = chooser
+    Uri = MagicMock(name="Uri")
+    Uri.parse.return_value = MagicMock(name="saved_media_store_uri")
+    activity = MagicMock(name="activity")
+
+    with (
+        patch.object(
+            native,
+            "_autoclass",
+            side_effect=lambda name: {
+                "android.content.Intent": Intent,
+                "android.net.Uri": Uri,
+                "java.lang.String": str,
+            }[name],
+        ),
+        patch.object(native, "_python_activity", return_value=activity),
+        patch.object(native, "_cast", side_effect=lambda _target, value: value),
+    ):
+        native._start_activity(
+            "content://media/external/images/media/43",
+            action="share",
+            subject="ReversibleMosaic 输出",
+        )
+
+    Intent.createChooser.assert_called_once_with(intent, "分享打码结果")
 
 
 def test_share_subject_never_contains_share_code() -> None:
@@ -254,8 +372,9 @@ def test_share_subject_never_contains_share_code() -> None:
 
     source = Path(app_module.__file__).read_text(encoding="utf-8")
     assert "share_current_result" in source
+    assert "share_original_current_result" in source
     # Sanity check that no obvious share code strings survived in app.py's
-    # share_current_result path. This is a coarse guard -- the real signal
+    # share paths. This is a coarse guard -- the real signal
     # comes from FR-ENC-011 log scanning, but it makes regressions obvious.
     assert "500000" not in source or 'DEFAULT_SHARE_CODE = "500000"' not in source
 
@@ -380,8 +499,24 @@ def test_share_gateway_receives_fixed_subject_without_share_code() -> None:
     app.last_result = snapshot
     setattr(app, "_output_gateway_instance", MagicMock(return_value=gateway))  # noqa: B010
 
+    app.share_original_current_result()
+
+    gateway.share_original.assert_called_once_with(
+        "content://media/output/42", "ReversibleMosaic 输出"
+    )
+
+
+def test_share_current_result_keeps_legacy_gateway_contract() -> None:
+    from reversible_mosaic import app as app_module
+
+    gateway = MagicMock()
+    snapshot = MagicMock(is_saved=True, saved_handle="content://media/output/43")
+    app = app_module.ReversibleMosaicApp.__new__(app_module.ReversibleMosaicApp)
+    app.last_result = snapshot
+    setattr(app, "_output_gateway_instance", MagicMock(return_value=gateway))  # noqa: B010
+
     app.share_current_result()
 
     gateway.share.assert_called_once_with(
-        "content://media/output/42", "ReversibleMosaic 输出"
+        "content://media/output/43", "ReversibleMosaic 输出"
     )
