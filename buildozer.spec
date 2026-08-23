@@ -26,7 +26,7 @@ source.dir = .
 source.include_exts = py,pyx,so,kv,png,jpg,jpeg,json,md,ttf,ttc,txt
 source.exclude_dirs = .git,.venv,.idea,tests,artifacts,build,bin,.buildozer,docs,vendor,scripts
 source.include_patterns = main.py,reversible_mosaic/core/algorithm/v1.so
-version = 0.1.0
+version = 1.0.0
 # Stage 0 batch 2: keep runtime requirements minimal. Cython compilation of
 # reversible_mosaic/core/algorithm/v1.pyx happens in a pre-buildozer step
 # (scripts/wsl_build_v1_cython.sh), which drops the arm64 .so directly into
