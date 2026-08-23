@@ -559,7 +559,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   - `ResultSnapshot(output_path, algorithm_version, rounds, share_code_display,
     operation="encrypted", display_name="", saved_handle=None, save_error=None)`：
     - `from_pipeline(result, *, operation, display_name)` 工厂。
-    - `operation`（"encrypted"/"restored"）决定 ResultScreen 是否显示分享码。
+    - `operation`（"encrypted"/"restored"）决定 ResultScreen 是否显示分享码和复制
+      分享代码操作；恢复结果不显示分享代码入口。
     - `display_name` — MediaStore 保存时用的 DISPLAY_NAME。
     - `saved_handle` — Android MediaStore URI 或 desktop 输出路径；None 表示
       结果仍在 app 私有缓存里，尚未 publish 到相册。
@@ -609,7 +610,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   时，保留 `SelectionCallback` 签名不变——`Screen._on_pick` 无需改动。
 
 ### [`ui/screens.py`](../reversible_mosaic/ui/screens.py)
-- **作用**：阶段 2a 引入，2b 扩展 ResultScreen 到 save/view/share 流程。
+- **作用**：阶段 2a 引入，2b 扩展 ResultScreen 到保存、查看与打码结果分享代码复制流程。
   四个生产屏：
   - `EncodeScreen` / `DecodeScreen` — 共用 `_EncodeDecodeBase`：文件选择、
     轮数 Spinner、分享代码 TextInput。打码页保留“随机 6 位 / 清除”；恢复页在
@@ -629,7 +630,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
       时降级为"返回首页"，避免失败后无出路。
   - `ResultScreen`（**Stage 2b 状态机**）——
     - **状态**：`unsaved` → `saved` / `save_error`。
-    - **按钮组**：主行 `保存到相册 / 查看`；副行 `复制分享代码 / 返回首页`。
+    - **按钮组**：主行 `保存到相册 / 查看`；打码结果副行 `复制分享代码 / 返回首页`，恢复结果副行仅显示占满原操作区的 `返回首页`。
+    - 结果摘要中的输出文件名和缓存路径按屏幕可用宽度自动换行，避免长路径越界。
     - `_on_save()` 调 `app.save_current_result()`（worker 线程走 gateway.publish_png）。
     - `_on_view()` 调 `app.view_current_result()`。
     - `_on_back()` 未保存时弹 `_show_unsaved_confirmation`（FR-SAVE-007）。

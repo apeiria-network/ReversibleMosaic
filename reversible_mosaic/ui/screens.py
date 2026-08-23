@@ -623,7 +623,9 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._save_status_label: Label
         self._save_button: Button
         self._view_button: Button
+        self._copy_share_button: Button
         self._back_button: Button
+        self._secondary_actions: BoxLayout
         self._current_snapshot: ResultSnapshot | None = None
         self._build_widget_tree()
 
@@ -640,8 +642,8 @@ class ResultScreen(Screen):  # type: ignore[misc]
             height=dp(96),
             halign="left",
             valign="top",
-            text_size=(None, dp(96)),
         )
+        self._summary_label.bind(width=self._sync_summary_text_width)
         root.add_widget(self._summary_label)
 
         self._share_code_label = Label(
@@ -678,22 +680,34 @@ class ResultScreen(Screen):  # type: ignore[misc]
         primary_actions.add_widget(self._view_button)
         root.add_widget(primary_actions)
 
-        secondary_actions = BoxLayout(
+        self._secondary_actions = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
         )
-        copy_btn = _result_button("复制分享代码")
-        copy_btn.bind(on_release=lambda _btn: self._on_copy_share_code())
+        self._copy_share_button = _result_button("复制分享代码")
+        self._copy_share_button.bind(on_release=lambda _btn: self._on_copy_share_code())
         self._back_button = _result_button("返回首页")
         self._back_button.bind(on_release=lambda _btn: self._on_back())
-        secondary_actions.add_widget(copy_btn)
-        secondary_actions.add_widget(self._back_button)
-        root.add_widget(secondary_actions)
+        root.add_widget(self._secondary_actions)
 
         self.add_widget(root)
+
+    def _sync_summary_text_width(self, label: Label, _width: float) -> None:
+        label.text_size = (label.width, label.height)
+
+    def _configure_secondary_actions(self, operation: str) -> None:
+        self._secondary_actions.clear_widgets()
+        if operation == "encrypted":
+            self._copy_share_button.size_hint_x = 1
+            self._back_button.size_hint_x = 1
+            self._secondary_actions.add_widget(self._copy_share_button)
+        else:
+            self._back_button.size_hint_x = 2
+        self._secondary_actions.add_widget(self._back_button)
 
     def apply_result(self, snapshot: ResultSnapshot) -> None:
         assert self._image_widget is not None
         self._current_snapshot = snapshot
+        self._configure_secondary_actions(snapshot.operation)
         self._image_widget.source = str(snapshot.output_path)
         self._image_widget.reload()
         self._summary_label.text = (
@@ -701,6 +715,7 @@ class ResultScreen(Screen):  # type: ignore[misc]
             f"缓存路径: {snapshot.output_path}\n"
             f"算法: V{snapshot.algorithm_version}  轮数: {snapshot.rounds}"
         )
+        self._sync_summary_text_width(self._summary_label, self._summary_label.width)
         # Only encode outputs surface the share code — decode reuses the same
         # value entered on the form so the user already has it.
         if snapshot.operation == "encrypted":

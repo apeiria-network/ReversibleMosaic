@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("kivy")
@@ -11,12 +13,46 @@ pytest.importorskip("kivy")
 from kivy.uix.label import Label
 
 from reversible_mosaic.ui.screens import DecodeScreen, EncodeScreen, ResultScreen
+from reversible_mosaic.ui.view_models import ResultSnapshot
 
 
 def _buttons_with_text(
     screen: EncodeScreen | DecodeScreen | ResultScreen, text: str
 ) -> list[object]:
     return [widget for widget in screen.walk() if getattr(widget, "text", None) == text]
+
+
+def _result_snapshot(operation: str) -> ResultSnapshot:
+    return ResultSnapshot(
+        output_path=Path(
+            "C:/private/cache/very-long-directory-name/"
+            + "nested/" * 12
+            + "result.png"
+        ),
+        algorithm_version=1,
+        rounds=5,
+        share_code_display="123456",
+        operation=operation,
+        display_name="result.png",
+    )
+
+
+def test_result_actions_depend_on_operation_and_summary_wraps() -> None:
+    screen = ResultScreen()
+
+    screen.apply_result(_result_snapshot("encrypted"))
+    assert len(_buttons_with_text(screen, "复制分享代码")) == 1
+    encrypted_back_button = _buttons_with_text(screen, "返回首页")[0]
+    assert encrypted_back_button.size_hint_x == 1
+
+    screen.apply_result(_result_snapshot("restored"))
+    assert _buttons_with_text(screen, "复制分享代码") == []
+    restored_back_button = _buttons_with_text(screen, "返回首页")[0]
+    assert restored_back_button.size_hint_x == 2
+    assert restored_back_button.parent.children == [restored_back_button]
+    assert screen._summary_label.text_size[0] == screen._summary_label.width
+    assert screen._summary_label.text_size[1] == screen._summary_label.height
+    assert f"缓存路径: {_result_snapshot('restored').output_path}" in screen._summary_label.text
 
 
 def test_encode_keeps_random_share_code_action() -> None:
