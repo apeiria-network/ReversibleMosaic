@@ -31,14 +31,16 @@ try:
 except ImportError as exc:  # pragma: no cover - matches the application dependency boundary
     raise RuntimeError("请安装 app 依赖后启动界面: pip install -e '.[app]'") from exc
 
+from reversible_mosaic.ui.screens import _HomeSwipeMixin
+
+# ruff: noqa: RUF001
+
 
 TUTORIAL_ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "tutorial"
 TUTORIAL_IMAGE_FILENAMES: tuple[str, ...] = (
     "example_compare.png",
-    "app-home.png",
-    "app-encrypted.png",
-    "app-restored.png",
-    "after-restored.png",
+    "app-title-and-encrypted.jpg",
+    "app-restored-and-result.jpg",
 )
 
 
@@ -62,9 +64,9 @@ class _TutorialImageButton(ButtonBehavior, Image):  # type: ignore[misc]
 
 
 class _PreviewScatter(Scatter):  # type: ignore[misc]
-    """Scatter that closes the modal only after an independent light tap."""
+    """Scatter that optionally closes the modal after a light image tap."""
 
-    def __init__(self, *, on_tap: Callable[[], None], **kwargs: Any) -> None:
+    def __init__(self, *, on_tap: Callable[[], None] | None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._on_tap = on_tap
         self._touch_starts: dict[int, tuple[float, float]] = {}
@@ -118,9 +120,66 @@ class _PreviewScatter(Scatter):  # type: ignore[misc]
 
     def on_touch_up(self, touch: Any) -> bool:
         handled = bool(super().on_touch_up(touch))
-        if self._finish_interaction(id(touch)):
+        if self._finish_interaction(id(touch)) and self._on_tap is not None:
             Clock.schedule_once(lambda _dt: self._on_tap(), 0)
         return handled
+
+
+class _PreviewGestureLayer(FloatLayout):
+    """Observe full-screen taps while leaving Scatter gesture ownership intact."""
+
+    def __init__(self, *, on_tap: Callable[[], None], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._on_tap = on_tap
+        self._touch_starts: dict[int, tuple[float, float]] = {}
+        self._moved = False
+        self._multi_touch = False
+        self._gesture_active = False
+
+    def _begin_interaction(self, touch_id: int, position: tuple[float, float]) -> None:
+        if not self._gesture_active:
+            self._touch_starts.clear()
+            self._moved = False
+            self._multi_touch = False
+            self._gesture_active = True
+        elif self._touch_starts:
+            self._multi_touch = True
+        self._touch_starts[touch_id] = position
+
+    def _move_interaction(self, touch_id: int, position: tuple[float, float]) -> None:
+        start = self._touch_starts.get(touch_id)
+        if start is None:
+            return
+        if abs(position[0] - start[0]) > dp(8) or abs(position[1] - start[1]) > dp(8):
+            self._moved = True
+
+    def _finish_interaction(self, touch_id: int) -> bool:
+        if touch_id not in self._touch_starts:
+            return False
+        self._touch_starts.pop(touch_id)
+        if self._touch_starts:
+            return False
+        should_close = self._gesture_active and not self._moved and not self._multi_touch
+        self._gesture_active = False
+        self._moved = False
+        self._multi_touch = False
+        return should_close
+
+    def on_touch_down(self, touch: Any) -> bool:
+        self._begin_interaction(id(touch), touch.pos)
+        super().on_touch_down(touch)
+        return False
+
+    def on_touch_move(self, touch: Any) -> bool:
+        self._move_interaction(id(touch), touch.pos)
+        super().on_touch_move(touch)
+        return False
+
+    def on_touch_up(self, touch: Any) -> bool:
+        super().on_touch_up(touch)
+        if self._finish_interaction(id(touch)):
+            Clock.schedule_once(lambda _dt: self._on_tap(), 0)
+        return False
 
 
 class _TutorialImagePreview(ModalView):  # type: ignore[misc]
@@ -136,9 +195,9 @@ class _TutorialImagePreview(ModalView):  # type: ignore[misc]
         self._build_content(source)
 
     def _build_content(self, source: str) -> None:
-        root = FloatLayout()
+        root = _PreviewGestureLayer(on_tap=self.dismiss)
         scatter = _PreviewScatter(
-            on_tap=self.dismiss,
+            on_tap=None,
             do_rotation=False,
             do_scale=True,
             do_translation=True,
@@ -217,8 +276,12 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
     ),
     TutorialBlock("heading", "快速开始"),
     TutorialBlock("subheading", "1. 从首页选择操作"),
-    TutorialBlock("paragraph", "打开 ReversibleMosaic 后，会看到首页："),
-    TutorialBlock("image", "APP 首页", "app-home.png"),
+    TutorialBlock(
+        "paragraph",
+        "打开 ReversibleMosaic 后，会看到首页。下面组合图左侧是首页，右侧是图片打码页面，"
+        "可以对照从选择操作到开始打码的界面。",
+    ),
+    TutorialBlock("image", "APP 首页与打码页面", "app-title-and-encrypted.jpg"),
     TutorialBlock(
         "list",
         "• 选择 [b]图片打码[/b]，生成视觉混淆后的图片；\n"
@@ -226,8 +289,10 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "• 选择 [b]教程 | 须知[/b]，查看应用内的使用说明和注意事项。",
     ),
     TutorialBlock("subheading", "2. 生成混淆图片"),
-    TutorialBlock("paragraph", "在首页点击 [b]图片打码[/b]，然后按以下步骤操作："),
-    TutorialBlock("image", "APP 打码页面", "app-encrypted.png"),
+    TutorialBlock(
+        "paragraph",
+        "在首页点击 [b]图片打码[/b]，组合图右侧展示了对应的操作页面。然后按以下步骤操作：",
+    ),
     TutorialBlock(
         "list",
         "1. 点击 [b]选择图片...[/b]，选择需要处理的图片；\n"
@@ -235,7 +300,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "3. 分享代码会自动填入，通常不需要修改（默认值为 500000）。如需使用其他代码，可以自行修改，"
         "或点击 [b]随机 6 位[/b] 生成新代码；\n"
         "4. 点击 [b]开始打码[/b]；\n"
-        "5. 处理完成后，预览结果并保存到手机，或使用 Android 系统分享功能。",
+        "5. 处理完成后，预览结果并保存到手机。",
     ),
     TutorialBlock(
         "note",
@@ -248,8 +313,12 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "APP 会先处理常见的照片方向信息。",
     ),
     TutorialBlock("subheading", "3. 恢复原图"),
-    TutorialBlock("paragraph", "在首页点击 [b]图片恢复[/b]，选择之前生成的混淆图片："),
-    TutorialBlock("image", "APP 恢复页面", "app-restored.png"),
+    TutorialBlock(
+        "paragraph",
+        "在首页点击 [b]图片恢复[/b]，选择之前生成的混淆图片。下面组合图左侧是图片恢复页面，"
+        "右侧是恢复成功后的结果页面。",
+    ),
+    TutorialBlock("image", "APP 恢复与恢复结果页面", "app-restored-and-result.jpg"),
     TutorialBlock(
         "list",
         "1. 点击 [b]选择图片...[/b]；\n"
@@ -265,9 +334,11 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "如果混淆图片的元数据信息完好，APP 可以自动识别其中的算法版本和轮次信息，无需用户填写。",
     ),
     TutorialBlock("subheading", "4. 查看恢复结果"),
-    TutorialBlock("paragraph", "恢复完成后，APP 会显示恢复出的图片："),
-    TutorialBlock("image", "恢复成功后的页面", "after-restored.png"),
-    TutorialBlock("paragraph", "确认结果无误后，可以将图片保存到手机，或使用系统分享功能。"),
+    TutorialBlock(
+        "paragraph",
+        "恢复完成后，组合图右侧会显示恢复出的图片。确认结果无误后，可以将图片保存到手机；"
+        "也可以使用手机上其他应用自行传递已保存的图片和分享代码。",
+    ),
     TutorialBlock("heading", "APP 功能"),
     TutorialBlock("subheading", "图片处理"),
     TutorialBlock(
@@ -276,7 +347,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "• 支持 RGB 和 RGBA 图片；\n"
         "• PNG 结果使用无损格式保存；\n"
         "• RGBA 图片的透明度会随像素一起保留；\n"
-        "• 可以保存结果并调用 Android 系统分享。",
+        "• 可以保存结果并在 APP 内查看。",
     ),
     TutorialBlock("subheading", "自动读取算法版本和轮次信息"),
     TutorialBlock(
@@ -338,7 +409,7 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
 )
 
 
-class TutorialScreen(Screen):  # type: ignore[misc]
+class TutorialScreen(_HomeSwipeMixin, Screen):  # type: ignore[misc]
     """A fixed-header, scrollable presentation of the user tutorial."""
 
     def __init__(self, **kwargs: object) -> None:

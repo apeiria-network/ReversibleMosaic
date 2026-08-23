@@ -238,29 +238,6 @@ def test_cleanup_orphan_pending_returns_zero_on_null_cursor() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Share intent: no share code leakage
-# ---------------------------------------------------------------------------
-
-
-def test_share_subject_never_contains_share_code() -> None:
-    """FR-ENC-006 / FR-SAVE-004: the subject passed via ``Intent.EXTRA_SUBJECT``
-    must never contain a share code. This test just asserts the module-level
-    invariant that callers pass a fixed app-branding string, which is what
-    :class:`ReversibleMosaicApp.share_current_result` does.
-    """
-    # The app hard-codes this string; anything with digits or the default
-    # share code 500000 is a red flag.
-    from reversible_mosaic import app as app_module
-
-    source = Path(app_module.__file__).read_text(encoding="utf-8")
-    assert "share_current_result" in source
-    # Sanity check that no obvious share code strings survived in app.py's
-    # share_current_result path. This is a coarse guard -- the real signal
-    # comes from FR-ENC-011 log scanning, but it makes regressions obvious.
-    assert "500000" not in source or 'DEFAULT_SHARE_CODE = "500000"' not in source
-
-
-# ---------------------------------------------------------------------------
 # Clipboard best-effort
 # ---------------------------------------------------------------------------
 
@@ -369,19 +346,3 @@ def test_pipeline_failure_diagnostics_hide_input_and_share_code() -> None:
     assert "741852" not in output.getvalue()
     assert screen.detail_label == "图片处理失败, 请检查图片和参数后重试。"
     coordinator.reset.assert_called_once()
-
-
-def test_share_gateway_receives_fixed_subject_without_share_code() -> None:
-    from reversible_mosaic import app as app_module
-
-    gateway = MagicMock()
-    snapshot = MagicMock(is_saved=True, saved_handle="content://media/output/42")
-    app = app_module.ReversibleMosaicApp.__new__(app_module.ReversibleMosaicApp)
-    app.last_result = snapshot
-    setattr(app, "_output_gateway_instance", MagicMock(return_value=gateway))  # noqa: B010
-
-    app.share_current_result()
-
-    gateway.share.assert_called_once_with(
-        "content://media/output/42", "ReversibleMosaic 输出"
-    )

@@ -7,6 +7,8 @@ gotchas). The ``TaskCoordinator`` lives on :class:`ReversibleMosaicApp`; the
 screens read/write shared state via ``app.form_state`` / ``app.last_result``.
 """
 
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
 import time
@@ -135,6 +137,71 @@ def _label_row(text: str) -> Label:
     )
 
 
+def _parameter_block(label: str, *controls: Any) -> BoxLayout:
+    """Group one form parameter and its controls with deliberate breathing room."""
+    block = BoxLayout(
+        orientation="vertical",
+        size_hint_y=None,
+        spacing=dp(6),
+        padding=(0, dp(4), 0, dp(4)),
+    )
+    block.add_widget(_label_row(label))
+    for control in controls:
+        block.add_widget(control)
+    block.height = sum(widget.height for widget in block.children) + dp(8 + 6 * len(controls))
+    return block
+
+
+class _HomeSwipeMixin:
+    """Observe a single edge swipe without taking touch handling from child widgets."""
+
+    _HOME_SWIPE_EDGE = dp(28)
+    _HOME_SWIPE_DISTANCE = dp(72)
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._home_swipe_start: tuple[float, float] | None = None
+        self._home_swipe_touch_id: int | None = None
+        self._home_swipe_multi_touch = False
+
+    def _begin_home_swipe(self, touch_id: int, position: tuple[float, float]) -> None:
+        if self._home_swipe_touch_id is not None:
+            self._home_swipe_multi_touch = True
+            return
+        width = getattr(self, "width", 0)
+        if position[0] <= self._HOME_SWIPE_EDGE or position[0] >= width - self._HOME_SWIPE_EDGE:
+            self._home_swipe_start = position
+            self._home_swipe_touch_id = touch_id
+            self._home_swipe_multi_touch = False
+
+    def _finish_home_swipe(self, touch_id: int, position: tuple[float, float]) -> bool:
+        if touch_id != self._home_swipe_touch_id or self._home_swipe_start is None:
+            return False
+        start_x, start_y = self._home_swipe_start
+        delta_x = position[0] - start_x
+        delta_y = position[1] - start_y
+        should_go_home = (
+            not self._home_swipe_multi_touch
+            and abs(delta_x) >= self._HOME_SWIPE_DISTANCE
+            and abs(delta_x) > abs(delta_y) * 1.5
+        )
+        self._home_swipe_start = None
+        self._home_swipe_touch_id = None
+        self._home_swipe_multi_touch = False
+        return should_go_home
+
+    def on_touch_down(self, touch: Any) -> bool:
+        self._begin_home_swipe(id(touch), touch.pos)
+        return bool(super().on_touch_down(touch))
+
+    def on_touch_up(self, touch: Any) -> bool:
+        handled = bool(super().on_touch_up(touch))
+        if self._finish_home_swipe(id(touch), touch.pos):
+            self._go_home()
+            return True
+        return handled
+
+
 def _hint_lines(hint: InputHint) -> str:
     if not hint.is_ok:
         return f"无法预览: {hint.error}"
@@ -167,7 +234,7 @@ class _BlackTextInput(TextInput):
         _force_text_input_style(self)
 
 
-class _EncodeDecodeBase(Screen):  # type: ignore[misc]
+class _EncodeDecodeBase(_HomeSwipeMixin, Screen):  # type: ignore[misc]
     """Shared UI parts for encode and decode screens."""
 
     operation: str = "encrypted"
@@ -213,7 +280,6 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
 
         self._append_operation_specific(root)
 
-        root.add_widget(_label_row("轮数（轮数越多，打码效果越好）"))
         self._rounds_spinner = Spinner(
             text=_round_label(DEFAULT_ROUNDS),
             values=_ROUND_LABELS,
@@ -222,9 +288,12 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
         )
         _spinner_style(self._rounds_spinner)
         self._rounds_spinner.bind(text=lambda _s, _val: self._sync_form())
-        root.add_widget(self._rounds_spinner)
+        root.add_widget(
+            _parameter_block(
+                "轮数（轮数越多，打码效果越好）", self._rounds_spinner
+            )
+        )
 
-        root.add_widget(_label_row("分享代码 (留空使用默认 500000)"))
         self._share_code_input = _BlackTextInput(
             text="",
             multiline=False,
@@ -234,16 +303,26 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
             hint_text="1-10 位十进制数字",
         )
         self._share_code_input.bind(text=lambda _t, _val: self._sync_form())
-        root.add_widget(self._share_code_input)
 
         code_actions = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(40), spacing=dp(6)
         )
-        code_actions.add_widget(
-            _mini_button("随机 6 位", lambda: self._on_randomize_share_code())
+        if self.operation == "encrypted":
+            code_actions.add_widget(
+                _mini_button("随机 6 位", lambda: self._on_randomize_share_code())
+            )
+            code_actions.add_widget(_mini_button("清除", lambda: self._on_clear_share_code()))
+        else:
+            clear_button = _mini_button("清除", lambda: self._on_clear_share_code())
+            clear_button.size_hint_x = 2
+            code_actions.add_widget(clear_button)
+        root.add_widget(
+            _parameter_block(
+                "分享代码 (留空使用默认 500000)",
+                self._share_code_input,
+                code_actions,
+            )
         )
-        code_actions.add_widget(_mini_button("清除", lambda: self._on_clear_share_code()))
-        root.add_widget(code_actions)
 
         self._error_label = Label(
             text="",
@@ -271,6 +350,9 @@ class _EncodeDecodeBase(Screen):  # type: ignore[misc]
 
     def _append_operation_specific(self, root: BoxLayout) -> None:
         """Encode has no extra fields; decode overrides for version dropdown."""
+
+    def _add_parameter_block(self, root: BoxLayout, label: str, *controls: Any) -> None:
+        root.add_widget(_parameter_block(label, *controls))
 
     def _start_button_label(self) -> str:
         return "开始打码"
@@ -381,7 +463,6 @@ class DecodeScreen(_EncodeDecodeBase):
         return "开始恢复"
 
     def _append_operation_specific(self, root: BoxLayout) -> None:
-        root.add_widget(_label_row("算法版本"))
         options = [
             f"V{descriptor.version} ({descriptor.display_name})"
             for descriptor in supported_versions()
@@ -395,7 +476,7 @@ class DecodeScreen(_EncodeDecodeBase):
             height=dp(44),
         )
         self._version_spinner.bind(text=lambda _s, _val: self._sync_version_form())
-        root.add_widget(self._version_spinner)
+        self._add_parameter_block(root, "算法版本", self._version_spinner)
         self._version_options = options
 
     def _sync_version_form(self) -> None:
@@ -526,15 +607,12 @@ class ResultScreen(Screen):  # type: ignore[misc]
 
     * ``unsaved`` — pipeline just finished, output lives only in app-private
       cache. The **Save** button is the only enabled destructive action.
-      **View** / **Share** are disabled because there is no gallery URI yet.
+      **View** is disabled because there is no gallery URI yet.
       **返回首页** goes through :meth:`on_pre_leave` to prompt about data
       loss (FR-SAVE-007).
-    * ``saved`` — MediaStore publish succeeded. **View** / **Share** unlock;
+    * ``saved`` — MediaStore publish succeeded. **View** unlocks;
       **Save** flips to "已保存"; leaving the screen no longer prompts.
     * ``save_error`` — surfaced above the buttons; user can retry Save.
-
-    On the "share" press we first show a short "使用文件/原图 发送" reminder
-    (FR-SAVE-005), then hand the MediaStore URI to the platform gateway.
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -545,8 +623,9 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._save_status_label: Label
         self._save_button: Button
         self._view_button: Button
-        self._share_button: Button
+        self._copy_share_button: Button
         self._back_button: Button
+        self._secondary_actions: BoxLayout
         self._current_snapshot: ResultSnapshot | None = None
         self._build_widget_tree()
 
@@ -563,8 +642,8 @@ class ResultScreen(Screen):  # type: ignore[misc]
             height=dp(96),
             halign="left",
             valign="top",
-            text_size=(None, dp(96)),
         )
+        self._summary_label.bind(width=self._sync_summary_text_width)
         root.add_widget(self._summary_label)
 
         self._share_code_label = Label(
@@ -597,30 +676,38 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._view_button = _result_button("查看")
         self._view_button.disabled = True
         self._view_button.bind(on_release=lambda _btn: self._on_view())
-        self._share_button = _result_button("分享")
-        self._share_button.disabled = True
-        self._share_button.bind(on_release=lambda _btn: self._on_share())
         primary_actions.add_widget(self._save_button)
         primary_actions.add_widget(self._view_button)
-        primary_actions.add_widget(self._share_button)
         root.add_widget(primary_actions)
 
-        secondary_actions = BoxLayout(
+        self._secondary_actions = BoxLayout(
             orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
         )
-        copy_btn = _result_button("复制分享代码")
-        copy_btn.bind(on_release=lambda _btn: self._on_copy_share_code())
+        self._copy_share_button = _result_button("复制分享代码")
+        self._copy_share_button.bind(on_release=lambda _btn: self._on_copy_share_code())
         self._back_button = _result_button("返回首页")
         self._back_button.bind(on_release=lambda _btn: self._on_back())
-        secondary_actions.add_widget(copy_btn)
-        secondary_actions.add_widget(self._back_button)
-        root.add_widget(secondary_actions)
+        root.add_widget(self._secondary_actions)
 
         self.add_widget(root)
+
+    def _sync_summary_text_width(self, label: Label, _width: float) -> None:
+        label.text_size = (label.width, label.height)
+
+    def _configure_secondary_actions(self, operation: str) -> None:
+        self._secondary_actions.clear_widgets()
+        if operation == "encrypted":
+            self._copy_share_button.size_hint_x = 1
+            self._back_button.size_hint_x = 1
+            self._secondary_actions.add_widget(self._copy_share_button)
+        else:
+            self._back_button.size_hint_x = 2
+        self._secondary_actions.add_widget(self._back_button)
 
     def apply_result(self, snapshot: ResultSnapshot) -> None:
         assert self._image_widget is not None
         self._current_snapshot = snapshot
+        self._configure_secondary_actions(snapshot.operation)
         self._image_widget.source = str(snapshot.output_path)
         self._image_widget.reload()
         self._summary_label.text = (
@@ -628,6 +715,7 @@ class ResultScreen(Screen):  # type: ignore[misc]
             f"缓存路径: {snapshot.output_path}\n"
             f"算法: V{snapshot.algorithm_version}  轮数: {snapshot.rounds}"
         )
+        self._sync_summary_text_width(self._summary_label, self._summary_label.width)
         # Only encode outputs surface the share code — decode reuses the same
         # value entered on the form so the user already has it.
         if snapshot.operation == "encrypted":
@@ -664,19 +752,16 @@ class ResultScreen(Screen):  # type: ignore[misc]
         if snapshot is None:
             self._save_button.disabled = True
             self._view_button.disabled = True
-            self._share_button.disabled = True
             return
         if snapshot.is_saved:
             self._save_button.text = "已保存"
             self._save_button.disabled = True
             self._view_button.disabled = False
-            self._share_button.disabled = False
             self._save_status_label.text = "已保存至相册的 Pictures/ReversibleMosaic 目录。"
         else:
             self._save_button.text = "保存到相册"
             self._save_button.disabled = False
             self._view_button.disabled = True
-            self._share_button.disabled = True
             if snapshot.save_error:
                 self._save_status_label.text = f"上次保存失败: {snapshot.save_error}"
             else:
@@ -701,45 +786,6 @@ class ResultScreen(Screen):  # type: ignore[misc]
             return
         if hasattr(app, "view_current_result"):
             app.view_current_result()
-
-    def _on_share(self) -> None:
-        app = App.get_running_app()
-        if app is None:
-            return
-        # FR-SAVE-005 reminder: platform manipulation kills recoverability.
-        self._show_share_reminder(lambda: app.share_current_result())
-
-    def _show_share_reminder(self, on_confirm: Callable[[], None]) -> None:
-        content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
-        content.add_widget(
-            Label(
-                text=(
-                    "分享前请选择\"文件/原图\"发送。\n"
-                    "多数社交平台会重新压缩或改动像素,\n"
-                    "改动后无法保证恢复。"
-                ),
-                halign="center",
-                valign="middle",
-            )
-        )
-        buttons = BoxLayout(
-            orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
-        )
-        cancel = _result_button("取消")
-        proceed = _result_button("继续分享")
-        buttons.add_widget(cancel)
-        buttons.add_widget(proceed)
-        content.add_widget(buttons)
-        popup = Popup(title="分享提示", content=content, size_hint=(0.85, 0.5), auto_dismiss=False)
-        _popup_style(popup)
-        cancel.bind(on_release=lambda _btn: popup.dismiss())
-
-        def _confirm(_btn: Button) -> None:
-            popup.dismiss()
-            on_confirm()
-
-        proceed.bind(on_release=_confirm)
-        popup.open()
 
     def _on_copy_share_code(self) -> None:
         app = App.get_running_app()
