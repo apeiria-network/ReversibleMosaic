@@ -77,6 +77,12 @@
 > **⚠️ 打包必须走 [`scripts/wsl_build_android.sh`](../scripts/wsl_build_android.sh)。
 > 不要手工 `cd /mnt/d/... && buildozer android debug`。**（原因见文件顶部注释；
 > 简述：WSL2 的 9P/DrvFs 会把 p4a subprocess 卡成僵尸，实测挂死过 52 分钟。）
+>
+> **执行环境：该脚本必须由 WSL shell 执行。** 不要在 Git Bash 中直接运行
+> `bash scripts/wsl_build_android.sh ...`；Git Bash 不提供脚本所依赖的 WSL `/mnt/d/...`
+> 路径映射，可能报找不到 `buildozer.spec`。请从 PowerShell/Windows shell 使用
+> `wsl -d Ubuntu -e bash /mnt/d/python/python_projects/ReversibleMosaic/scripts/wsl_build_android.sh <mode> <version>`
+> 调用，或先进入 WSL 再执行脚本。
 
 ### 3.1 一次性准备（新机器 / 新 WSL）
 

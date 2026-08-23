@@ -48,9 +48,11 @@
     PC 退回 `desktop.DesktopOutputGateway` + `_DesktopKivyClipboardGateway`
     （Kivy Core Clipboard 兜底）。
 - **App 方法**：
-  - `on_start()`（Stage 2b）— Kivy 生命周期钩子，跑 `cleanup_orphan_pending()`
-    清 MediaStore 孤儿 pending 行。
+  - `on_start()`（Stage 2b）— Kivy 生命周期钩子，跑 `cleanup_orphan_pending()` 清 MediaStore 孤儿 pending 行，并绑定 Android 返回键处理。
   - `open_encode()` / `open_decode()` — 首页按钮的目标。
+  - `_on_keyboard(...)` — 仅处理 Android key 27：当前屏为 `encode`、`decode` 或
+    `tutorial` 且没有活动 `ModalView` 时调用该屏 `_go_home()`；其余屏交还系统处理，
+    因而不会改变进度取消或结果页确认流程。
   - `launch_pipeline(operation, form)` — 用 `output_naming.compute_output_name`
     计算 `<原名>_mosaic.png` / `_reversal_mosaic.png`（重名 `_1/_2`），
     构造 `TaskRequest`、切到 progress 屏、启动 coordinator；输出落
@@ -64,9 +66,8 @@
     `_on_saved(handle)` 更新 `last_result.saved_handle`；失败回调
     `_on_save_failed(message)` 写 `last_result.save_error`；两者都调
     `_get_result_screen().refresh_from_app()`。
-  - `view_current_result()` / `share_current_result()`（Stage 2b）— 转发到
-    `gateway.open_for_view(saved_handle)` / `gateway.share(handle, subject)`。
-    subject 恒定为 `"ReversibleMosaic 输出"`，**不包含**分享代码。
+  - `view_current_result()`（Stage 2b）— 转发到
+    `gateway.open_for_view(saved_handle)`；要求结果已保存。
   - `_on_progress` / `_on_completed` / `_on_failed` / `_on_cancelled` —
     coordinator 回调；这些已经在主线程上，可以直接摸 widget。
 - **改动指引**：
@@ -474,7 +475,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   - `InputGateway`：`import_to_cache(uri, cache_dir) -> Path` —— 把选中 URI
     的字节安全复制到 app 私有缓存。
   - `OutputGateway`：`publish_png(source, display_name) -> str` /
-    `open_for_view(handle)` / `share(handle, subject)`。
+    `open_for_view(handle)`。
   - `ClipboardGateway`：`copy_sensitive(text)` —— 分享码复制且尽量标"敏感"。
 - **谁用它**：`reversible_mosaic/app.py::_build_output_gateway` /
   `_build_clipboard_gateway` 里的平台选择器；`ui/screens.py` 只依赖协议。
@@ -484,7 +485,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`android/desktop.py`](../reversible_mosaic/android/desktop.py)
 - **作用**：PC 侧假实现。用 `shutil.copyfile` 做 import；
   `publish_png` 写到指定目录（重名自动 `_1/_2` 后缀）；`open_for_view` /
-  `share` / `copy_sensitive` 都是 no-op（PC 不需要）。
+  `open_for_view` / `copy_sensitive` 都是 no-op（PC 不需要）。
 - **导出**：`DesktopInputGateway`、`DesktopOutputGateway(output_dir)`、
   `DesktopClipboardGateway`。
 - **改动指引**：PC 端跑冒烟测试或性能扫描时用。**不要**在这里加平台特定
@@ -511,10 +512,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
     5. API 29+ `IS_PENDING=0`，API 26-28 广播 `ACTION_MEDIA_SCANNER_SCAN_FILE`；
     6. 任何一步失败都 `_safe_delete` 掉 pending 行（FR-SAVE-006 半文件保护）。
     返回 `content://media/external/images/media/<id>` URI 字符串。
-  - `open_for_view(handle: str)` —— `Intent.ACTION_VIEW`。
-  - `share(handle: str, subject: str)` —— `Intent.ACTION_SEND` +
-    `EXTRA_STREAM` + `FLAG_GRANT_READ_URI_PERMISSION`；`subject` 只填 App 通用
-    标识，**绝不放分享代码**（FR-ENC-006 / FR-SAVE-004）。
+  - `open_for_view(handle: str)` —— `Intent.ACTION_VIEW`，以临时只读 URI 授权
+    打开已保存的 MediaStore 图片。
   - `cleanup_orphan_pending() -> int` —— App 启动时清 `IS_PENDING=1` 的孤儿行
     （FR-TASK-006 / §9.2 item 3）；只在 API 29+ 有 IS_PENDING 语义，API 26-28
     返回 0。所有失败被吞掉不阻塞启动。
@@ -532,8 +531,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
     重载，Python 原生 `int` / `Uri` 会引发 `JavaMethodResolutionError`。凡是
     涉及"多态入参"的调用一律用 `_cast(target_class, value)`（内部走
     `jnius.cast`）明确目标签名。当前落地点：`ContentValues.put("is_pending",
-    Integer(0/1))`、`putExtra(EXTRA_STREAM, cast Parcelable uri)`、
-    `putExtra(EXTRA_SUBJECT, cast CharSequence String)`。
+    Integer(0/1))`。
 
 ### [`android/__init__.py`](../reversible_mosaic/android/__init__.py)
 - 仅 docstring `"""Android platform adapters."""`。
@@ -561,7 +559,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   - `ResultSnapshot(output_path, algorithm_version, rounds, share_code_display,
     operation="encrypted", display_name="", saved_handle=None, save_error=None)`：
     - `from_pipeline(result, *, operation, display_name)` 工厂。
-    - `operation`（"encrypted"/"restored"）决定 ResultScreen 是否显示分享码。
+    - `operation`（"encrypted"/"restored"）决定 ResultScreen 是否显示分享码和复制
+      分享代码操作；恢复结果不显示分享代码入口。
     - `display_name` — MediaStore 保存时用的 DISPLAY_NAME。
     - `saved_handle` — Android MediaStore URI 或 desktop 输出路径；None 表示
       结果仍在 app 私有缓存里，尚未 publish 到相册。
@@ -611,12 +610,15 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   时，保留 `SelectionCallback` 签名不变——`Screen._on_pick` 无需改动。
 
 ### [`ui/screens.py`](../reversible_mosaic/ui/screens.py)
-- **作用**：阶段 2a 引入，2b 扩展 ResultScreen 到 save/view/share 流程。
+- **作用**：阶段 2a 引入，2b 扩展 ResultScreen 到保存、查看与打码结果分享代码复制流程。
   四个生产屏：
   - `EncodeScreen` / `DecodeScreen` — 共用 `_EncodeDecodeBase`：文件选择、
-    轮数 Spinner、分享代码 TextInput + 随机 6 位 / 清除、开始按钮 disable
-    直到 `TaskFormState.can_start()`。DecodeScreen 有算法版本 Spinner，
-    且选文件后自动从 PNG 元数据带入 version + rounds。`_on_pick` 回调
+    轮数 Spinner、分享代码 TextInput。打码页保留“随机 6 位 / 清除”；恢复页在
+    v1.0.1 只显示占满该操作区的“清除”，避免无意义地随机生成恢复代码。两个页面
+    都在 `TaskFormState.can_start()` 前禁用开始按钮。DecodeScreen 有算法版本 Spinner，
+    且选文件后自动从 PNG 元数据带入 version + rounds。算法版本、轮数、分享代码各自
+    使用共享参数块的内边距与块间距，避免表单控件相互拥挤。页面从左右边缘开始的单指
+    横向滑动会返回首页；垂直、多指及非边缘交互不触发。`_on_pick` 回调
     接受 `(cached_path, display_name)` 二元组，写入
     `form.original_display_name`（Stage 2b）。
   - `ProgressScreen` — 阶段标签、进度条（fraction 未知时 indeterminate）、
@@ -628,11 +630,10 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
       时降级为"返回首页"，避免失败后无出路。
   - `ResultScreen`（**Stage 2b 状态机**）——
     - **状态**：`unsaved` → `saved` / `save_error`。
-    - **按钮组**：主行 `保存到相册 / 查看 / 分享`（后两个未保存前 disabled）；
-      副行 `复制分享代码 / 返回首页`。
+    - **按钮组**：主行 `保存到相册 / 查看`；打码结果副行 `复制分享代码 / 返回首页`，恢复结果副行仅显示占满原操作区的 `返回首页`。
+    - 结果摘要中的输出文件名和缓存路径按屏幕可用宽度自动换行，避免长路径越界。
     - `_on_save()` 调 `app.save_current_result()`（worker 线程走 gateway.publish_png）。
-    - `_on_view()` / `_on_share()` 调对应 app 方法；分享前必弹
-      `_show_share_reminder`（FR-SAVE-005 "文件/原图 发送" 提示）。
+    - `_on_view()` 调 `app.view_current_result()`。
     - `_on_back()` 未保存时弹 `_show_unsaved_confirmation`（FR-SAVE-007）。
     - `refresh_from_app()` 供 app 在保存成功/失败后调用，刷新按钮 disable 状态。
 - **状态存放**：屏本身无长期状态；`app.encrypted_form_state` /
@@ -643,9 +644,16 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 - **改动指引**：
   - 加新表单字段：先在 `view_models.TaskFormState` 加字段 → 再在
     `_EncodeDecodeBase._build_widget_tree` 挂 widget → `_sync_form` 里回写。
+  - 调整参数块或边缘侧滑判定时，同步更新 `tests/unit/test_screens.py`；侧滑必须保持
+    观察式处理，不能抢占 TextInput、Spinner 等子控件的触摸事件。
   - 加 result 页新按钮：走 app 方法而不是直接摸 gateway，保持
     "worker/gateway 逻辑在 app.py，UI 只发信号 + 展示" 的分层。
   - 屏内不 import Kivy 之外的东西时可提到 `ui/view_models.py` 便于 pytest 直测。
+
+  - **改动指引**：教程图片预览的全屏手势观察器负责静止单击退出，内部 Scatter
+    只负责平移/缩放；修改触摸阈值或预览层级时同步 `tests/unit/test_tutorial.py`。
+    TutorialScreen 与打码/恢复页一样支持边缘横向侧滑返回首页，但不拦截教程内容的
+    垂直滚动。
 
 ### [`ui/__init__.py`](../reversible_mosaic/ui/__init__.py)
 - 仅 docstring `"""UI-layer helpers (view models + Kivy screens)."""`。
@@ -1210,7 +1218,7 @@ Buildozer 当 loose file 打进 APK。
 | 加 PNG 元数据字段 | `io/png_metadata.py`（保持向后兼容） |
 | 加拒绝理由 | `io/probe.py` 或 `io/normalize.py`（同步 `tests/adversarial/`） |
 | 加平台能力 | `android/gateways.py` Protocol + 两个实现（`desktop.py` + `native.py`）；同类 Android gateway 全部集中在 `native.py` |
-| 改 MediaStore 保存 / 分享 / 查看 | `reversible_mosaic/android/native.py::AndroidOutputGateway`（保留 `publish_png` / `open_for_view` / `share` 签名，`app.py` 无需改动） |
+| 改 MediaStore 保存 / 查看 | `reversible_mosaic/android/native.py::AndroidOutputGateway`（保留 `publish_png` / `open_for_view`，gateway 不提供图片分享） |
 | 加 result 页新按钮 | `ui/screens.py::ResultScreen._build_widget_tree` 挂 widget → `app.py` 加对应方法（保持 gateway 调用集中在 app 层） |
 | 改输出命名规则 | `domain/output_naming.py`（同步 `tests/unit/test_output_naming.py`）|
 | 调整 Android 打包 | `buildozer.spec`（加依赖时一次一个） |

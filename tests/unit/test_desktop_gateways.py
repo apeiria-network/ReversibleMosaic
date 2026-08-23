@@ -1,6 +1,6 @@
 """Tests for :class:`reversible_mosaic.android.desktop.DesktopOutputGateway`.
 
-Covers the collision-safe copy (``_1/_2``), no-op view / share on PC, and the
+Covers the collision-safe copy (``_1/_2``), no-op view on PC, and the
 clipboard stub. These aren't strictly Android but they are what our unit-tests
 can reach without JNI, and they document the gateway contract the real
 :class:`AndroidOutputGateway` also satisfies.
@@ -55,11 +55,10 @@ def test_desktop_output_appends_counter_on_collision(tmp_path: Path) -> None:
     assert Path(second).read_bytes() == b"b"
 
 
-def test_desktop_view_and_share_are_noops(tmp_path: Path) -> None:
+def test_desktop_view_is_a_noop(tmp_path: Path) -> None:
     gateway = DesktopOutputGateway(tmp_path)
-    # These must not raise on the PC path; they intentionally return None.
+    # Viewing must not raise on the PC path; it intentionally returns None.
     gateway.open_for_view("anything")
-    gateway.share("anything", "subject")
 
 
 def test_desktop_input_imports_to_cache(tmp_path: Path) -> None:

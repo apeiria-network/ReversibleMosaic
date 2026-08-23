@@ -16,6 +16,7 @@ from reversible_mosaic.ui.tutorial import (
     TUTORIAL_BLOCKS,
     TUTORIAL_IMAGE_FILENAMES,
     TutorialScreen,
+    _PreviewGestureLayer,
     _PreviewScatter,
     _TutorialImageButton,
     _TutorialImagePreview,
@@ -40,15 +41,33 @@ def test_tutorial_contains_only_user_facing_sections() -> None:
 
 
 def test_tutorial_images_are_referenced_and_packaged() -> None:
+    assert TUTORIAL_IMAGE_FILENAMES == (
+        "example_compare.png",
+        "app-title-and-encrypted.jpg",
+        "app-restored-and-result.jpg",
+    )
     referenced_images = tuple(
         block.image_filename for block in TUTORIAL_BLOCKS if block.kind == "image"
     )
 
     assert referenced_images == TUTORIAL_IMAGE_FILENAMES
+    text = _tutorial_text()
     for filename in TUTORIAL_IMAGE_FILENAMES:
         path = TUTORIAL_ASSET_DIR / filename
         assert path.is_file(), f"missing tutorial asset: {path}"
         assert path.stat().st_size > 0
+
+    for obsolete in (
+        "app-home.png",
+        "app-encrypted.png",
+        "app-restored.png",
+        "after-restored.png",
+    ):
+        assert obsolete not in TUTORIAL_IMAGE_FILENAMES
+        assert obsolete not in text
+
+    assert "首页与打码页面" in text
+    assert "恢复与恢复结果页面" in text
 
 
 def test_tutorial_share_code_guidance_matches_default_flow() -> None:
@@ -61,7 +80,14 @@ def test_tutorial_share_code_guidance_matches_default_flow() -> None:
     assert "随机 6 位" in text
 
 
-def test_tutorial_screen_has_scrollable_content_images_and_return_button() -> None:
+def test_tutorial_excludes_removed_image_sharing_feature() -> None:
+    text = _tutorial_text()
+
+    assert "Android 系统分享功能" not in text
+    assert "调用 Android 系统分享" not in text
+    assert "保存到手机" in text
+    assert "可信渠道" in text
+
     screen = TutorialScreen(name="tutorial")
     descendants = list(screen.walk())
 
@@ -83,6 +109,10 @@ def test_tutorial_image_preview_supports_clean_zoom_pan_layout() -> None:
     )
     descendants = list(preview.walk())
     scatter = next(widget for widget in descendants if isinstance(widget, _PreviewScatter))
+    gesture_layer = next(
+        widget for widget in descendants if isinstance(widget, _PreviewGestureLayer)
+    )
+    assert callable(gesture_layer._on_tap)
 
     assert scatter.do_scale is True
     assert scatter.do_translation == (True, True)
@@ -94,7 +124,25 @@ def test_tutorial_image_preview_supports_clean_zoom_pan_layout() -> None:
     preview.dismiss()
 
 
-def test_preview_tap_to_close_only_accepts_a_fresh_stationary_single_touch() -> None:
+    preview.dismiss()
+
+
+def test_preview_gesture_layer_dismisses_screen_tap_but_not_drag_or_pinch() -> None:
+    layer = _PreviewGestureLayer(on_tap=lambda: None)
+
+    layer._begin_interaction(1, (5, 5))
+    assert layer._finish_interaction(1) is True
+
+    layer._begin_interaction(2, (5, 5))
+    layer._move_interaction(2, (5 + dp(9), 5))
+    assert layer._finish_interaction(2) is False
+
+    layer._begin_interaction(3, (5, 5))
+    layer._begin_interaction(4, (10, 10))
+    assert layer._finish_interaction(4) is False
+    assert layer._finish_interaction(3) is False
+
+
     scatter = _PreviewScatter(on_tap=lambda: None)
 
     scatter._begin_interaction(1, (100, 100))
