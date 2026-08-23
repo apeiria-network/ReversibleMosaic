@@ -8,8 +8,8 @@ side of gateways" harder to eyeball.
 Contents:
 
 * :class:`AndroidOutputGateway` — writes finished PNGs into
-  ``Pictures/ReversibleMosaic`` via MediaStore, opens them for viewing, and
-  shares them via ``Intent.ACTION_SEND``. Uses ``IS_PENDING`` on API 29+ and
+  ``Pictures/ReversibleMosaic`` via MediaStore and opens them for viewing.
+  Uses ``IS_PENDING`` on API 29+ and
   falls back to insert-then-MediaScanner on API 26-28. On any write / verify
   failure the pending row is deleted so no half-file is ever visible
   (FR-SAVE-006). Cleans up its own orphan pending rows at app startup
@@ -143,24 +143,10 @@ class AndroidOutputGateway:
 
         return str(item_uri.toString())
 
-    # -- view / share ------------------------------------------------------
+    # -- view ---------------------------------------------------------------
 
     def open_for_view(self, handle: str) -> None:
-        _start_activity(handle, action="view")
-
-    def share(self, handle: str, subject: str) -> None:
-        """Backward-compatible alias for :meth:`share_original`."""
-        self.share_original(handle, subject)
-
-    def share_original(self, handle: str, subject: str) -> None:
-        """Share the saved PNG itself through a temporary readable URI.
-
-        The chooser receives the exact MediaStore URI rather than a bitmap or
-        cache copy, so file-capable receivers can retain the PNG bytes and PNG
-        metadata. A receiver can still independently transcode after accepting
-        it; the UI tells the user to select its file/original-send option.
-        """
-        _start_activity(handle, action="share_original", subject=subject)
+        _start_activity(handle)
 
     # -- startup housekeeping ---------------------------------------------
 
@@ -348,51 +334,20 @@ def _media_store_has_name(resolver: Any, display_name: str, api_level: int) -> b
         return False
 
 
-def _start_activity(handle: str, *, action: str, subject: str | None = None) -> None:
+def _start_activity(handle: str) -> None:
     Intent = _autoclass("android.content.Intent")
     Uri = _autoclass("android.net.Uri")
     String = _autoclass("java.lang.String")
     activity = _python_activity()
 
     uri = Uri.parse(String(handle))
-    if action == "view":
-        intent = Intent(Intent.ACTION_VIEW)
-        # Wildcard MIME so viewers that only register for image/* (not the
-        # exact image/png) still pick this up.
-        intent.setDataAndType(uri, String("image/*"))
-    elif action in {"share", "share_original"}:
-        intent = Intent(Intent.ACTION_SEND)
-        intent.setType(String(_MIME_TYPE))
-        # PyJNIus overload disambiguation — Intent.putExtra has ~24 overloads
-        # (Parcelable / Parcelable[] / Serializable / CharSequence / String
-        # / boolean[] / …). Uri implements Parcelable AND Serializable, so
-        # PyJNIus can't decide without an explicit cast. Same class of bug
-        # as ContentValues.put(String, Integer). Cast pins the target
-        # signature to `putExtra(String, Parcelable)`.
-        intent.putExtra(Intent.EXTRA_STREAM, _cast("android.os.Parcelable", uri))
-        if subject:
-            intent.putExtra(
-                Intent.EXTRA_SUBJECT,
-                _cast("java.lang.CharSequence", String(subject)),
-            )
-    else:
-        raise ValueError(f"未知 action: {action}")
-
+    intent = Intent(Intent.ACTION_VIEW)
+    # Wildcard MIME so viewers that only register for image/* (not the exact
+    # image/png) still pick this up.
+    intent.setDataAndType(uri, String("image/*"))
     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    if action in {"share", "share_original"}:
-        chooser_title_text = (
-            "原图/文件分享" if action == "share_original" else "分享打码结果"
-        )
-        chooser_title = _cast(
-            "java.lang.CharSequence", String(chooser_title_text)
-        )
-        chooser = Intent.createChooser(intent, chooser_title)
-        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        activity.startActivity(chooser)
-    else:
-        activity.startActivity(intent)
+    activity.startActivity(intent)
 
 
 # ---------------------------------------------------------------------------

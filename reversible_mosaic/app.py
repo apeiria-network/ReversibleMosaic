@@ -441,34 +441,6 @@ class ReversibleMosaicApp(App):  # type: ignore[misc]
             message = str(exc) or exc.__class__.__name__
             self._get_result_screen().show_action_error(f"查看失败: {message}")
 
-    def share_current_result(self) -> None:
-        """Backward-compatible image share entry point."""
-        snapshot = self.last_result
-        if snapshot is None or not snapshot.is_saved or snapshot.saved_handle is None:
-            return
-        gateway = self._output_gateway_instance()
-        # Never place a share code in the subject line (FR-ENC-006 / FR-SAVE-004).
-        subject = "ReversibleMosaic 输出"
-        try:
-            gateway.share(snapshot.saved_handle, subject)
-        except Exception as exc:
-            message = str(exc) or exc.__class__.__name__
-            self._get_result_screen().show_action_error(f"分享失败: {message}")
-
-    def share_original_current_result(self) -> None:
-        """Share the saved PNG as a file through the platform gateway."""
-        snapshot = self.last_result
-        if snapshot is None or not snapshot.is_saved or snapshot.saved_handle is None:
-            return
-        gateway = self._output_gateway_instance()
-        # Never place a share code in the subject line (FR-ENC-006 / FR-SAVE-004).
-        subject = "ReversibleMosaic 输出"
-        try:
-            gateway.share_original(snapshot.saved_handle, subject)
-        except Exception as exc:
-            message = str(exc) or exc.__class__.__name__
-            self._get_result_screen().show_action_error(f"原图/文件分享失败: {message}")
-
     def _on_saved(self, handle: str) -> None:
         snapshot = self.last_result
         if snapshot is None:

@@ -64,11 +64,8 @@
     `_on_saved(handle)` 更新 `last_result.saved_handle`；失败回调
     `_on_save_failed(message)` 写 `last_result.save_error`；两者都调
     `_get_result_screen().refresh_from_app()`。
-  - `view_current_result()` / `share_current_result()` / `share_original_current_result()`（Stage 2b / v1.0.1）—
-    转发到 `gateway.open_for_view(saved_handle)`、兼容的 `gateway.share(handle, subject)`、
-    明确的 `gateway.share_original(handle, subject)`。结果页的“原图/文件分享”只会走
-    后者；三者均要求结果已保存。分享 subject 恒定为 `"ReversibleMosaic 输出"`，
-    **不包含**分享代码。
+  - `view_current_result()`（Stage 2b）— 转发到
+    `gateway.open_for_view(saved_handle)`；要求结果已保存。
   - `_on_progress` / `_on_completed` / `_on_failed` / `_on_cancelled` —
     coordinator 回调；这些已经在主线程上，可以直接摸 widget。
 - **改动指引**：
@@ -476,8 +473,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
   - `InputGateway`：`import_to_cache(uri, cache_dir) -> Path` —— 把选中 URI
     的字节安全复制到 app 私有缓存。
   - `OutputGateway`：`publish_png(source, display_name) -> str` /
-    `open_for_view(handle)` / `share(handle, subject)` /
-    `share_original(handle, subject)`（v1.0.1 的明确原图/文件分享语义）。
+    `open_for_view(handle)`。
   - `ClipboardGateway`：`copy_sensitive(text)` —— 分享码复制且尽量标"敏感"。
 - **谁用它**：`reversible_mosaic/app.py::_build_output_gateway` /
   `_build_clipboard_gateway` 里的平台选择器；`ui/screens.py` 只依赖协议。
@@ -487,7 +483,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
 ### [`android/desktop.py`](../reversible_mosaic/android/desktop.py)
 - **作用**：PC 侧假实现。用 `shutil.copyfile` 做 import；
   `publish_png` 写到指定目录（重名自动 `_1/_2` 后缀）；`open_for_view` /
-  `share` / `share_original` / `copy_sensitive` 都是 no-op（PC 不需要）。
+  `open_for_view` / `copy_sensitive` 都是 no-op（PC 不需要）。
 - **导出**：`DesktopInputGateway`、`DesktopOutputGateway(output_dir)`、
   `DesktopClipboardGateway`。
 - **改动指引**：PC 端跑冒烟测试或性能扫描时用。**不要**在这里加平台特定
@@ -514,14 +510,8 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
     5. API 29+ `IS_PENDING=0`，API 26-28 广播 `ACTION_MEDIA_SCANNER_SCAN_FILE`；
     6. 任何一步失败都 `_safe_delete` 掉 pending 行（FR-SAVE-006 半文件保护）。
     返回 `content://media/external/images/media/<id>` URI 字符串。
-  - `open_for_view(handle: str)` —— `Intent.ACTION_VIEW`。
-  - `share(handle: str, subject: str)`（兼容入口）与
-    `share_original(handle: str, subject: str)`（v1.0.1 明确入口）——后者以
-    `Intent.ACTION_SEND` + `EXTRA_STREAM` + `FLAG_GRANT_READ_URI_PERMISSION`
-    发送**已保存**的 MediaStore PNG URI，并用 `image/png` MIME type 和
-    “原图/文件分享” chooser；不重新编码、不创建缓存副本。接收端仍可能自行转码，
-    因此 UI 提示用户在目标应用选择文件/原图发送。`subject` 只填 App 通用标识，
-    **绝不放分享代码**（FR-ENC-006 / FR-SAVE-004）。
+  - `open_for_view(handle: str)` —— `Intent.ACTION_VIEW`，以临时只读 URI 授权
+    打开已保存的 MediaStore 图片。
   - `cleanup_orphan_pending() -> int` —— App 启动时清 `IS_PENDING=1` 的孤儿行
     （FR-TASK-006 / §9.2 item 3）；只在 API 29+ 有 IS_PENDING 语义，API 26-28
     返回 0。所有失败被吞掉不阻塞启动。
@@ -539,8 +529,7 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
     重载，Python 原生 `int` / `Uri` 会引发 `JavaMethodResolutionError`。凡是
     涉及"多态入参"的调用一律用 `_cast(target_class, value)`（内部走
     `jnius.cast`）明确目标签名。当前落地点：`ContentValues.put("is_pending",
-    Integer(0/1))`、`putExtra(EXTRA_STREAM, cast Parcelable uri)`、
-    `putExtra(EXTRA_SUBJECT, cast CharSequence String)`。
+    Integer(0/1))`。
 
 ### [`android/__init__.py`](../reversible_mosaic/android/__init__.py)
 - 仅 docstring `"""Android platform adapters."""`。
@@ -636,12 +625,9 @@ V1 参考实现 + Cython 优化候选。**V1 状态：FROZEN（2026-07-30）**�
       时降级为"返回首页"，避免失败后无出路。
   - `ResultScreen`（**Stage 2b 状态机**）——
     - **状态**：`unsaved` → `saved` / `save_error`。
-    - **按钮组**：主行 `保存到相册 / 查看 / 原图/文件分享`（后两个未保存前 disabled）；
-      副行 `复制分享代码 / 返回首页`。
+    - **按钮组**：主行 `保存到相册 / 查看`；副行 `复制分享代码 / 返回首页`。
     - `_on_save()` 调 `app.save_current_result()`（worker 线程走 gateway.publish_png）。
-    - `_on_view()` / `_on_share()` 调对应 app 方法；分享前必弹
-      `_show_share_reminder`（FR-SAVE-005 “文件/原图发送” 提示），并由
-      `_on_share()` 调用 `share_original_current_result()`。
+    - `_on_view()` 调 `app.view_current_result()`。
     - `_on_back()` 未保存时弹 `_show_unsaved_confirmation`（FR-SAVE-007）。
     - `refresh_from_app()` 供 app 在保存成功/失败后调用，刷新按钮 disable 状态。
 - **状态存放**：屏本身无长期状态；`app.encrypted_form_state` /
@@ -1219,7 +1205,7 @@ Buildozer 当 loose file 打进 APK。
 | 加 PNG 元数据字段 | `io/png_metadata.py`（保持向后兼容） |
 | 加拒绝理由 | `io/probe.py` 或 `io/normalize.py`（同步 `tests/adversarial/`） |
 | 加平台能力 | `android/gateways.py` Protocol + 两个实现（`desktop.py` + `native.py`）；同类 Android gateway 全部集中在 `native.py` |
-| 改 MediaStore 保存 / 分享 / 查看 | `reversible_mosaic/android/native.py::AndroidOutputGateway`（保留 `publish_png` / `open_for_view` / `share` 签名，`app.py` 无需改动） |
+| 改 MediaStore 保存 / 查看 | `reversible_mosaic/android/native.py::AndroidOutputGateway`（保留 `publish_png` / `open_for_view`，gateway 不提供图片分享） |
 | 加 result 页新按钮 | `ui/screens.py::ResultScreen._build_widget_tree` 挂 widget → `app.py` 加对应方法（保持 gateway 调用集中在 app 层） |
 | 改输出命名规则 | `domain/output_naming.py`（同步 `tests/unit/test_output_naming.py`）|
 | 调整 Android 打包 | `buildozer.spec`（加依赖时一次一个） |

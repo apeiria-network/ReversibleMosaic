@@ -531,15 +531,12 @@ class ResultScreen(Screen):  # type: ignore[misc]
 
     * ``unsaved`` — pipeline just finished, output lives only in app-private
       cache. The **Save** button is the only enabled destructive action.
-      **View** / **Share** are disabled because there is no gallery URI yet.
+      **View** is disabled because there is no gallery URI yet.
       **返回首页** goes through :meth:`on_pre_leave` to prompt about data
       loss (FR-SAVE-007).
-    * ``saved`` — MediaStore publish succeeded. **View** / **Share** unlock;
+    * ``saved`` — MediaStore publish succeeded. **View** unlocks;
       **Save** flips to "已保存"; leaving the screen no longer prompts.
     * ``save_error`` — surfaced above the buttons; user can retry Save.
-
-    On the "share" press we first show a short "使用文件/原图 发送" reminder
-    (FR-SAVE-005), then hand the MediaStore URI to the platform gateway.
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -550,7 +547,6 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._save_status_label: Label
         self._save_button: Button
         self._view_button: Button
-        self._share_button: Button
         self._back_button: Button
         self._current_snapshot: ResultSnapshot | None = None
         self._build_widget_tree()
@@ -602,12 +598,8 @@ class ResultScreen(Screen):  # type: ignore[misc]
         self._view_button = _result_button("查看")
         self._view_button.disabled = True
         self._view_button.bind(on_release=lambda _btn: self._on_view())
-        self._share_button = _result_button("原图/文件分享")
-        self._share_button.disabled = True
-        self._share_button.bind(on_release=lambda _btn: self._on_share())
         primary_actions.add_widget(self._save_button)
         primary_actions.add_widget(self._view_button)
-        primary_actions.add_widget(self._share_button)
         root.add_widget(primary_actions)
 
         secondary_actions = BoxLayout(
@@ -669,19 +661,16 @@ class ResultScreen(Screen):  # type: ignore[misc]
         if snapshot is None:
             self._save_button.disabled = True
             self._view_button.disabled = True
-            self._share_button.disabled = True
             return
         if snapshot.is_saved:
             self._save_button.text = "已保存"
             self._save_button.disabled = True
             self._view_button.disabled = False
-            self._share_button.disabled = False
             self._save_status_label.text = "已保存至相册的 Pictures/ReversibleMosaic 目录。"
         else:
             self._save_button.text = "保存到相册"
             self._save_button.disabled = False
             self._view_button.disabled = True
-            self._share_button.disabled = True
             if snapshot.save_error:
                 self._save_status_label.text = f"上次保存失败: {snapshot.save_error}"
             else:
@@ -706,45 +695,6 @@ class ResultScreen(Screen):  # type: ignore[misc]
             return
         if hasattr(app, "view_current_result"):
             app.view_current_result()
-
-    def _on_share(self) -> None:
-        app = App.get_running_app()
-        if app is None:
-            return
-        # FR-SAVE-005 reminder: platform manipulation kills recoverability.
-        self._show_share_reminder(lambda: app.share_original_current_result())
-
-    def _show_share_reminder(self, on_confirm: Callable[[], None]) -> None:
-        content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
-        content.add_widget(
-            Label(
-                text=(
-                    "分享前请选择\"文件/原图\"发送。\n"
-                    "多数社交平台会重新压缩或改动像素,\n"
-                    "改动后无法保证恢复。"
-                ),
-                halign="center",
-                valign="middle",
-            )
-        )
-        buttons = BoxLayout(
-            orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8)
-        )
-        cancel = _result_button("取消")
-        proceed = _result_button("继续分享")
-        buttons.add_widget(cancel)
-        buttons.add_widget(proceed)
-        content.add_widget(buttons)
-        popup = Popup(title="分享提示", content=content, size_hint=(0.85, 0.5), auto_dismiss=False)
-        _popup_style(popup)
-        cancel.bind(on_release=lambda _btn: popup.dismiss())
-
-        def _confirm(_btn: Button) -> None:
-            popup.dismiss()
-            on_confirm()
-
-        proceed.bind(on_release=_confirm)
-        popup.open()
 
     def _on_copy_share_code(self) -> None:
         app = App.get_running_app()
