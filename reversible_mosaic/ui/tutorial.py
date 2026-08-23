@@ -5,7 +5,7 @@ content. It does not render arbitrary Markdown and it never exposes developer
 document links inside the app.
 """
 
-# ruff: noqa: E501, RUF001
+# ruff: noqa: RUF001
 
 from __future__ import annotations
 
@@ -39,10 +39,8 @@ from reversible_mosaic.ui.screens import _HomeSwipeMixin
 TUTORIAL_ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "tutorial"
 TUTORIAL_IMAGE_FILENAMES: tuple[str, ...] = (
     "example_compare.png",
-    "app-home.png",
-    "app-encrypted.png",
-    "app-restored.png",
-    "after-restored.png",
+    "app-title-and-encrypted.jpg",
+    "app-restored-and-result.jpg",
 )
 
 
@@ -278,8 +276,12 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
     ),
     TutorialBlock("heading", "快速开始"),
     TutorialBlock("subheading", "1. 从首页选择操作"),
-    TutorialBlock("paragraph", "打开 ReversibleMosaic 后，会看到首页："),
-    TutorialBlock("image", "APP 首页", "app-home.png"),
+    TutorialBlock(
+        "paragraph",
+        "打开 ReversibleMosaic 后，会看到首页。下面组合图左侧是首页，右侧是图片打码页面，"
+        "可以对照从选择操作到开始打码的界面。",
+    ),
+    TutorialBlock("image", "APP 首页与打码页面", "app-title-and-encrypted.jpg"),
     TutorialBlock(
         "list",
         "• 选择 [b]图片打码[/b]，生成视觉混淆后的图片；\n"
@@ -287,8 +289,10 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "• 选择 [b]教程 | 须知[/b]，查看应用内的使用说明和注意事项。",
     ),
     TutorialBlock("subheading", "2. 生成混淆图片"),
-    TutorialBlock("paragraph", "在首页点击 [b]图片打码[/b]，然后按以下步骤操作："),
-    TutorialBlock("image", "APP 打码页面", "app-encrypted.png"),
+    TutorialBlock(
+        "paragraph",
+        "在首页点击 [b]图片打码[/b]，组合图右侧展示了对应的操作页面。然后按以下步骤操作：",
+    ),
     TutorialBlock(
         "list",
         "1. 点击 [b]选择图片...[/b]，选择需要处理的图片；\n"
@@ -309,8 +313,12 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "APP 会先处理常见的照片方向信息。",
     ),
     TutorialBlock("subheading", "3. 恢复原图"),
-    TutorialBlock("paragraph", "在首页点击 [b]图片恢复[/b]，选择之前生成的混淆图片："),
-    TutorialBlock("image", "APP 恢复页面", "app-restored.png"),
+    TutorialBlock(
+        "paragraph",
+        "在首页点击 [b]图片恢复[/b]，选择之前生成的混淆图片。下面组合图左侧是图片恢复页面，"
+        "右侧是恢复成功后的结果页面。",
+    ),
+    TutorialBlock("image", "APP 恢复与恢复结果页面", "app-restored-and-result.jpg"),
     TutorialBlock(
         "list",
         "1. 点击 [b]选择图片...[/b]；\n"
@@ -326,9 +334,11 @@ TUTORIAL_BLOCKS: tuple[TutorialBlock, ...] = (
         "如果混淆图片的元数据信息完好，APP 可以自动识别其中的算法版本和轮次信息，无需用户填写。",
     ),
     TutorialBlock("subheading", "4. 查看恢复结果"),
-    TutorialBlock("paragraph", "恢复完成后，APP 会显示恢复出的图片："),
-    TutorialBlock("image", "恢复成功后的页面", "after-restored.png"),
-    TutorialBlock("paragraph", "确认结果无误后，可以将图片保存到手机；也可以使用手机上其他应用自行传递已保存的图片和分享代码。"),
+    TutorialBlock(
+        "paragraph",
+        "恢复完成后，组合图右侧会显示恢复出的图片。确认结果无误后，可以将图片保存到手机；"
+        "也可以使用手机上其他应用自行传递已保存的图片和分享代码。",
+    ),
     TutorialBlock("heading", "APP 功能"),
     TutorialBlock("subheading", "图片处理"),
     TutorialBlock(

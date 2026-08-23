@@ -41,15 +41,33 @@ def test_tutorial_contains_only_user_facing_sections() -> None:
 
 
 def test_tutorial_images_are_referenced_and_packaged() -> None:
+    assert TUTORIAL_IMAGE_FILENAMES == (
+        "example_compare.png",
+        "app-title-and-encrypted.jpg",
+        "app-restored-and-result.jpg",
+    )
     referenced_images = tuple(
         block.image_filename for block in TUTORIAL_BLOCKS if block.kind == "image"
     )
 
     assert referenced_images == TUTORIAL_IMAGE_FILENAMES
+    text = _tutorial_text()
     for filename in TUTORIAL_IMAGE_FILENAMES:
         path = TUTORIAL_ASSET_DIR / filename
         assert path.is_file(), f"missing tutorial asset: {path}"
         assert path.stat().st_size > 0
+
+    for obsolete in (
+        "app-home.png",
+        "app-encrypted.png",
+        "app-restored.png",
+        "after-restored.png",
+    ):
+        assert obsolete not in TUTORIAL_IMAGE_FILENAMES
+        assert obsolete not in text
+
+    assert "首页与打码页面" in text
+    assert "恢复与恢复结果页面" in text
 
 
 def test_tutorial_share_code_guidance_matches_default_flow() -> None:
